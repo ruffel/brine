@@ -11,16 +11,19 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ruffel/brine"
 )
 
 const (
-	eventStreamPath = "/events"
-	saltTagRoot     = "salt"
-	saltTagJob      = "job"
-	saltTagReturn   = "ret"
+	eventStreamPath             = "/events"
+	initialEventFrameBufferSize = 64 * 1024
+	maxEventFrameSize           = 10 * 1024 * 1024
+	saltTagRoot                 = "salt"
+	saltTagJob                  = "job"
+	saltTagReturn               = "ret"
 )
 
 type eventStream struct {
@@ -28,6 +31,9 @@ type eventStream struct {
 	cancel  context.CancelFunc
 	scanner *bufio.Scanner
 	filter  brine.EventFilter
+
+	closeOnce sync.Once
+	closeErr  error
 }
 
 type saltEventFrame struct {
@@ -66,10 +72,13 @@ func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (br
 		return nil, err
 	}
 
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, initialEventFrameBufferSize), maxEventFrameSize)
+
 	return &eventStream{
 		body:    response.Body,
 		cancel:  cancel,
-		scanner: bufio.NewScanner(response.Body),
+		scanner: scanner,
 		filter:  filter,
 	}, nil
 }
@@ -114,9 +123,17 @@ func (s *eventStream) Recv(ctx context.Context) (brine.Event, error) {
 }
 
 func (s *eventStream) Close() error {
-	s.cancel()
+	s.closeOnce.Do(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
 
-	return s.body.Close()
+		if s.body != nil {
+			s.closeErr = s.body.Close()
+		}
+	})
+
+	return s.closeErr
 }
 
 func (s *eventStream) nextFrame() (saltEventFrame, error) {

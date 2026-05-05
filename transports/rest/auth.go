@@ -78,6 +78,15 @@ func (a *EAuth) Token(ctx context.Context, client *http.Client, baseURL string) 
 	return a.token, nil
 }
 
+// InvalidateToken clears the cached Salt API token so the next request logs in again.
+func (a *EAuth) InvalidateToken() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.token = ""
+	a.expire = time.Time{}
+}
+
 type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`

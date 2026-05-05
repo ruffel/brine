@@ -4,7 +4,7 @@ A Go library for working with [SaltStack](https://saltproject.io/) through a tra
 
 ## Status
 
-Brine is under active implementation. The root API, mock transport, state helpers, retry middleware, integration harness, REST synchronous transport, REST local async jobs, and REST event streaming groundwork are in place.
+Brine is under active implementation. The root API, mock transport, state helpers, retry middleware, integration harness, REST synchronous transport, REST local async jobs, REST event streaming groundwork, and the `brinetest` transport contract suite are in place.
 
 Current production-oriented support target:
 
@@ -19,6 +19,7 @@ See also:
 - `DESIGN.md` for API and transport design
 - `IMPLEMENTATION_PLAN.md` for phased work
 - `TESTING.md` for fixture and integration strategy
+- `MIGRATION.md` for moving process-wrapper callers to Brine
 
 ## Tiny example
 
@@ -57,7 +58,51 @@ func main() {
 }
 ```
 
-For hermetic unit tests, use `transports/mock` instead of a real Salt master. Transport implementations should also run the `brinetest` contract suite against a deterministic Salt environment to verify normalized API parity. For REST, start the integration harness and run `just contract-rest`.
+For hermetic unit tests, use `transports/mock` instead of a real Salt master. Transport implementations should also run the `brinetest` contract suite against a deterministic Salt environment to verify normalized API parity across advertised capabilities. For REST, start the integration harness and run `just contract-rest`.
+
+REST remains the production-oriented backend for the current Salt `v3006` localhost-master target. Python transport implementation is deferred unless a migration or no-REST deployment requirement appears; a future Python command bridge should advertise a smaller capability set, while REST-level parity would require a long-lived helper.
+
+## Middleware and orchestration boundaries
+
+Use `brine.WithMiddleware` for caller-owned request policy such as adding kwargs,
+merging per-run pillar, or rewriting targets. Middleware receives and returns
+transport-neutral `brine.Request` values, so orchestration-specific state
+expansion belongs in caller middleware rather than in core transports.
+
+Middleware that needs supporting Salt data, such as runner output used to build
+pillar, should call an unwrapped handler (`Client.Unwrap()` or the bare
+transport) for its internal runner/local requests. That avoids recursively
+applying the same middleware to the middleware's own helper calls.
+
+See the compile-time examples in `middleware_examples_test.go` for:
+
+- static pillar injection;
+- target transformation;
+- fetching `manage.alived` through an unwrapped handler and merging it into
+  pillar;
+- terminal progress and JSON-line observer adapters;
+- mock-backed tests for caller-owned middleware.
+
+## Request metadata
+
+Use `brine.Metadata` or `brine.MetadataMap` for caller-owned annotations such as
+trace IDs, change tickets, workflow names, or UI correlation data. Metadata is
+not sent to Salt by core transports. It is carried on `brine.Request`, emitted to
+observers in request events, and preserved on `Result.Request` so middleware and
+callers can make policy decisions without changing Salt kwargs.
+
+If metadata should affect Salt execution, make that conversion explicit in
+caller middleware. For example, middleware can read a `ticket` metadata value and
+merge it into per-run pillar. See `metadata_examples_test.go` for compile-time
+examples of metadata-driven middleware and observer access.
+
+## Transport author notes
+
+Transport implementations should use `brine.DescribeTarget` rather than writing
+their own target type switches. The helper centralizes Brine's sealed target
+mapping and gives future target types one exhaustiveness point. REST uses this
+helper before converting target descriptors to Salt's `tgt` and `tgt_type`
+fields.
 
 ## Async jobs and events
 

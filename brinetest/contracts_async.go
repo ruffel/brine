@@ -39,6 +39,13 @@ func asyncContracts() []TestCase {
 			Capabilities: []brine.Capability{brine.CapLocalStart, brine.CapJobLookup},
 			Run:          verifyAsyncLocalWaitPartialFailure,
 		},
+		{
+			Category:     CategoryAsync,
+			Name:         "failed-wait-idempotent",
+			Description:  "terminal failed Job.Wait results are cached and idempotent",
+			Capabilities: []brine.Capability{brine.CapLocalStart, brine.CapJobLookup},
+			Run:          verifyAsyncFailedWaitIdempotent,
+		},
 	}
 }
 
@@ -106,4 +113,23 @@ func verifyAsyncLocalWaitPartialFailure(t *testing.T, h Harness) {
 	assert.True(t, executionError.Partial())
 	assert.Equal(t, h.PartialFailedMinions, executionError.Failed())
 	assertReturnedMinions(t, result, h.Minions)
+}
+
+func verifyAsyncFailedWaitIdempotent(t *testing.T, h Harness) {
+	t.Helper()
+
+	ctx, cancel := contractContext(t, defaultAsyncTimeout)
+	defer cancel()
+
+	job, err := h.Client.Start(ctx, states.SLS(h.Target, requireStateName(t, h.States.PartialFailure)))
+	require.NoError(t, err)
+
+	result1, err1 := job.Wait(ctx)
+	result2, err2 := job.Wait(ctx)
+	require.Error(t, err1)
+	require.Error(t, err2)
+	assert.True(t, requireExecutionError(t, err1).Partial())
+	assert.True(t, requireExecutionError(t, err2).Partial())
+	assert.Same(t, result1, result2)
+	assertReturnedMinions(t, result1, h.Minions)
 }

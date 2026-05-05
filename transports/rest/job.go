@@ -123,7 +123,7 @@ func (t *Transport) lookupLocalJob(
 	jid string,
 	expected []string,
 ) (*brine.Result, error) {
-	body, err := t.post(ctx, "/", []map[string]any{{
+	body, err := t.post(ctx, []map[string]any{{
 		"client": "runner",
 		"fun":    "jobs.lookup_jid",
 		"arg":    []any{jid},

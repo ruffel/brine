@@ -46,8 +46,9 @@ type Request struct {
 
 // LowstateEntry is a raw Salt lowstate entry.
 type LowstateEntry struct {
+	Client  string         `json:"client"`
 	Fun     string         `json:"fun"`
-	Target  string         `json:"tgt,omitempty"`
+	Target  any            `json:"tgt,omitempty"`
 	TgtType string         `json:"tgt_type,omitempty"` //nolint:tagliatelle // Salt lowstate wire format requires tgt_type.
 	Args    []any          `json:"arg,omitempty"`
 	Kwargs  map[string]any `json:"kwarg,omitempty"`
@@ -118,6 +119,43 @@ func Kwargs(kwargs map[string]any) RequestOption {
 
 		for key, value := range kwargs {
 			req.Kwargs[key] = cloneAny(value)
+		}
+	}
+}
+
+// Metadata attaches caller-owned metadata to the request. Metadata is not sent
+// to Salt by core transports; it is available to middleware, observers, and
+// callers through Request values and Result.Request.
+func Metadata(key string, value any) RequestOption {
+	return func(req *Request) {
+		if key == "" {
+			return
+		}
+
+		if req.Metadata == nil {
+			req.Metadata = make(map[string]any)
+		}
+
+		req.Metadata[key] = cloneAny(value)
+	}
+}
+
+// MetadataMap merges caller-owned request metadata. Metadata is not sent to
+// Salt by core transports.
+func MetadataMap(metadata map[string]any) RequestOption {
+	return func(req *Request) {
+		if len(metadata) == 0 {
+			return
+		}
+
+		if req.Metadata == nil {
+			req.Metadata = make(map[string]any, len(metadata))
+		}
+
+		for key, value := range metadata {
+			if key != "" {
+				req.Metadata[key] = cloneAny(value)
+			}
 		}
 	}
 }
@@ -193,6 +231,8 @@ func (r Request) Validate() error {
 		if len(r.Lowstate) == 0 {
 			errs = append(errs, errors.New("lowstate request requires at least one entry"))
 		}
+
+		errs = append(errs, validateLowstateEntries(r.Lowstate))
 	default:
 		errs = append(errs, fmt.Errorf("unknown request kind %d", r.Kind))
 	}
@@ -216,23 +256,55 @@ func (r Request) Validate() error {
 	return errors.Join(errs...)
 }
 
+func validateLowstateEntries(entries []LowstateEntry) error {
+	var errs []error
+	for i, entry := range entries {
+		if entry.Client == "" {
+			errs = append(errs, fmt.Errorf("lowstate entry %d requires client", i))
+		}
+
+		if entry.Fun == "" {
+			errs = append(errs, fmt.Errorf("lowstate entry %d requires function", i))
+		}
+
+		if lowstateClientRequiresTarget(entry.Client) && isEmptyLowstateTarget(entry.Target) {
+			errs = append(errs, fmt.Errorf("lowstate entry %d requires target", i))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func lowstateClientRequiresTarget(client string) bool {
+	return client == "local" || client == "local_async"
+}
+
 func isEmptyTarget(target Target) bool {
+	spec, err := DescribeTarget(target)
+	if err != nil {
+		return false
+	}
+
+	return isEmptyTargetExpression(spec.Expression)
+}
+
+func isEmptyTargetExpression(target any) bool {
 	switch t := target.(type) {
-	case GlobTarget:
-		return string(t) == ""
-	case CompoundTarget:
-		return string(t) == ""
-	case GrainTarget:
-		return string(t) == ""
-	case PillarTarget:
-		return string(t) == ""
-	case NodeGroupTarget:
-		return string(t) == ""
-	case ListTarget:
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case []string:
+		return len(t) == 0
+	case []any:
 		return len(t) == 0
 	default:
 		return false
 	}
+}
+
+func isEmptyLowstateTarget(target any) bool {
+	return isEmptyTargetExpression(target)
 }
 
 func mergeMaps(dst map[string]any, src map[string]any) map[string]any {

@@ -157,9 +157,36 @@ func TestJobEventsSubscribesByJID(t *testing.T) {
 	assert.Equal(t, 2, requestCount)
 }
 
+func TestSubscribeReceivesLargeSSEEvent(t *testing.T) {
+	t.Parallel()
+
+	large := strings.Repeat("x", 70*1024)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("tag: salt/job/111/ret/minion-1\n"))
+		_, _ = writer.Write([]byte("data: {\"jid\":\"111\",\"id\":\"minion-1\",\"return\":\"" + large + "\",\"retcode\":0}\n\n"))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{JID: "111"})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	event, err := stream.Recv(context.Background())
+	require.NoError(t, err)
+	payload, ok := event.MinionReturned()
+	require.True(t, ok)
+	assert.Equal(t, "minion-1", payload.Result.Minion)
+	assert.Len(t, payload.Result.Return, len(large)+2)
+}
+
 func TestEventStreamCloseIsIdempotentEnough(t *testing.T) {
 	t.Parallel()
 
 	stream := &eventStream{body: io.NopCloser(strings.NewReader("")), cancel: func() {}}
+	assert.NoError(t, stream.Close())
 	assert.NoError(t, stream.Close())
 }

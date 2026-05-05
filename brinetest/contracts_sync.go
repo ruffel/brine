@@ -24,6 +24,13 @@ func syncContracts() []TestCase {
 			Capabilities: []brine.Capability{brine.CapRunnerRun},
 			Run:          verifyRunnerScalar,
 		},
+		{
+			Category:     CategorySync,
+			Name:         "wheel-scalar-result",
+			Description:  "wheel scalar results decode without fake minion IDs",
+			Capabilities: []brine.Capability{brine.CapWheelRun},
+			Run:          verifyWheelScalar,
+		},
 	}
 }
 
@@ -62,4 +69,21 @@ func verifyRunnerScalar(t *testing.T, h Harness) {
 	for _, minion := range h.Minions {
 		assert.Contains(t, alive, minion)
 	}
+}
+
+func verifyWheelScalar(t *testing.T, h Harness) {
+	t.Helper()
+
+	ctx, cancel := contractContext(t, defaultRunTimeout)
+	defer cancel()
+
+	result, err := h.Client.Run(ctx, brine.Wheel("key.list_all"))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.False(t, result.IsLocal())
+	assert.Empty(t, result.ByMinion)
+
+	var keys map[string]any
+	require.NoError(t, result.DecodeScalar(&keys))
+	assert.NotEmpty(t, keys)
 }

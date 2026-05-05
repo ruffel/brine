@@ -9,13 +9,16 @@ import (
 )
 
 const (
+	CategoryInfo        = "info"
 	CategorySync        = "sync"
 	CategoryState       = "state"
 	CategoryAsync       = "async"
 	CategoryEvents      = "events"
+	CategoryTargets     = "targets"
+	CategoryLowstate    = "lowstate"
 	CategoryUnsupported = "unsupported"
 
-	initialContractCapacity = 20
+	initialContractCapacity = 24
 )
 
 // StateNames names deterministic test states available to contract tests.
@@ -70,10 +73,13 @@ func Verify(t *testing.T, h Harness) {
 // AllContracts returns the full contract suite.
 func AllContracts() []TestCase {
 	contracts := make([]TestCase, 0, initialContractCapacity)
+	contracts = append(contracts, infoContracts()...)
 	contracts = append(contracts, syncContracts()...)
 	contracts = append(contracts, stateContracts()...)
 	contracts = append(contracts, asyncContracts()...)
 	contracts = append(contracts, eventContracts()...)
+	contracts = append(contracts, targetContracts()...)
+	contracts = append(contracts, lowstateContracts()...)
 	contracts = append(contracts, unsupportedContracts()...)
 	validateContracts(contracts)
 

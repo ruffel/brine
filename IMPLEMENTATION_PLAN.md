@@ -36,16 +36,16 @@ Completed or substantially complete:
 
 Known gaps before the next transport implementation:
 
-- no transport contract/parity suite yet;
 - REST `TransportInfo` does not detect Salt/API versions yet;
 - REST async runner/wheel remain unsupported;
 - REST event stream reconnect/heartbeat behavior is not implemented;
-- target resolution is still unsupported;
+- REST target resolution uses `test.ping`, so it resolves responsive minions rather
+  than all accepted keys;
 - Python transport mode is undecided.
 
 Immediate next milestone:
 
-1. Add `brinetest` contract tests and run them against REST integration.
+1. Harden REST behavior that is straightforward to express in `brinetest`.
 2. Use `brinetest` as the acceptance gate for any Python transport.
 3. Then decide whether to harden REST further or begin Phase 6.
 
@@ -221,7 +221,8 @@ Acceptance criteria:
 
 Implementation status: substantially complete. Remaining work is version
 detection and any additional deployed Salt response shapes discovered by
-fixtures or contract tests.
+fixtures or contract tests. REST target resolution is implemented through
+`test.ping`.
 
 Deliverables:
 
@@ -308,6 +309,12 @@ Acceptance criteria:
 
 ## Phase 5.5: Transport contract/parity suite (`brinetest`)
 
+Implementation status: implemented for the first REST parity gate. The suite now
+covers transport info, sync local/runner/wheel calls, state calls, raw lowstate,
+async wait including success and failure idempotency, event stream/minion-return
+normalization, target resolution, and unsupported-capability contracts. Future
+transports should run it from day one.
+
 Goal: lock down Brine's transport-neutral semantics before adding another real
 transport.
 
@@ -319,25 +326,29 @@ transport payloads.
 Deliverables:
 
 - Add a `brinetest` package with `TestCase`, categories, prereq/capability
-  checks, and `Verify(t, Harness)`.
+  checks, absent-capability checks, and `Verify(t, Harness)`.
 - Define a `Harness` containing a `*brine.Client`, target, expected minions,
   state SLS names, and optional cleanup.
+- Add info contracts for stable transport names and advertised capabilities.
 - Add sync contracts for:
   - local `test.ping` success;
   - runner scalar result;
+  - wheel scalar result;
   - state success;
   - state full failure with `ExecutionError`;
-  - state partial failure with successful returns preserved.
+  - state partial failure with successful returns preserved;
+  - raw lowstate local `test.ping` scalar behavior.
 - Add async contracts for:
   - local async start/wait success;
   - local async start/wait partial failure;
-  - wait idempotency;
+  - successful and failed wait idempotency;
   - `LocalJob` expected-minion behavior.
 - Add event contracts gated by `CapEvents` and `CapStreamingReturns`:
   - job event stream opens;
   - a matching job event can be received;
   - minion return events normalize to `EventMinionReturned` when Salt emits a
     supported return tag shape.
+- Add unsupported-capability contracts for explicit `UnsupportedError` behavior.
 - Run `brinetest` against REST integration.
 - Optionally run a smaller scripted subset against `transports/mock` if useful.
 - Document which contracts are mandatory, capability-gated, or best-effort due
@@ -346,7 +357,8 @@ Deliverables:
 Acceptance criteria:
 
 - Contract tests skip when required capabilities are absent.
-- REST passes the sync and async wait contracts in the compose harness.
+- REST passes the info, sync, state, lowstate, async wait, event, target, and
+  unsupported-capability contracts in the compose harness.
 - Event contracts are stable enough for opt-in integration runs and do not make
   `go test ./...` require Docker.
 - The contract suite becomes the acceptance gate for Python transport parity.
@@ -416,11 +428,15 @@ Recommendation:
 - Implement REST first against the localhost Salt API endpoint.
 - Keep Python in the design as a compatibility backend, not merely a throwaway
   shim.
-- If Python is needed only for migration, start with Option B and expose limited
-  capabilities.
+- Current decision: do not start Python transport implementation while the
+  localhost REST endpoint satisfies the production-oriented Salt `v3006` target.
+- If Python is needed only for migration or environments without rest_cherrypy,
+  start with Option B and advertise only local synchronous execution, target
+  resolution, and any helper-emitted per-command progress/return events that are
+  actually implemented.
 - If Python is needed as a long-term first-class backend or REST parity is
-  required, invest in Option A and run it against the same fixture matrix as
-  REST.
+  required, invest in Option A and run it against the same fixture matrix and
+  full `brinetest` suite as REST.
 
 Acceptance criteria:
 
@@ -435,6 +451,10 @@ Acceptance criteria:
   the advertised capability set makes the skip explicit.
 
 ## Phase 7: Request middleware and orchestration integration
+
+Implementation status: initial caller-owned middleware and observer examples are
+implemented and covered with mock-backed tests. Migration-specific workflows can
+now build on these examples without adding product policy to the core package.
 
 Deliverables:
 
@@ -456,6 +476,11 @@ Acceptance criteria:
 - Core transport implementations remain generic Salt integrations.
 
 ## Phase 8: Migration of existing callers
+
+Implementation status: migration guidance and compile-time examples are in place.
+This repository does not currently contain product process-wrapper callers to
+replace directly; downstream callers can use `MIGRATION.md` and the migration
+examples as the migration checklist.
 
 Deliverables:
 
@@ -530,17 +555,20 @@ Completed:
 
 Next:
 
-- [ ] Implement `brinetest` contract/parity suite.
-- [ ] Run `brinetest` against REST integration.
-- [ ] Decide whether REST needs more hardening before Python.
-- [ ] Confirm Python mode requirements and target compatibility level.
-- [ ] Re-evaluate Python transport need.
+- [x] Implement `brinetest` contract/parity suite.
+- [x] Run `brinetest` against REST integration.
+- [x] Add REST hardening covered by `brinetest` where practical.
+- [x] Decide whether REST needs more hardening before Python.
+- [x] Confirm Python mode requirements and target compatibility level.
+- [x] Re-evaluate Python transport need.
+- [x] Start Phase 7 request middleware and orchestration integration examples.
+- [x] Start Phase 8 migration of existing callers.
 
 Deferred or still open:
 
-- [ ] Request metadata semantics need more concrete caller-facing examples.
-- [ ] Target type-switch exhaustiveness guard for transports.
-- [ ] REST `TransportInfo` Salt/API version detection.
-- [ ] REST target resolution.
+- [x] Request metadata semantics need more concrete caller-facing examples.
+- [x] Target type-switch exhaustiveness guard for transports.
+- [x] REST `TransportInfo` Salt version probing; API version remains empty because rest_cherrypy exposes no stable API-version endpoint.
+- [ ] REST target resolution semantics beyond responsive-minion resolution, if needed.
 - [ ] REST event heartbeat/reconnect strategy.
 - [ ] REST runner/wheel async semantics, if needed.

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ruffel/brine"
@@ -42,6 +43,10 @@ type Transport struct {
 	auth            Authenticator
 	jobPollInterval time.Duration
 	caps            brine.Capabilities
+
+	infoMu     sync.Mutex
+	cachedInfo brine.TransportInfo
+	infoCached bool
 }
 
 // New constructs a rest_cherrypy transport.
@@ -75,6 +80,7 @@ func New(config Config) (*Transport, error) {
 			brine.CapLowstate,
 			brine.CapEvents,
 			brine.CapJobLookup,
+			brine.CapTargetResolution,
 			brine.CapStreamingReturns,
 		),
 	}, nil
@@ -86,11 +92,30 @@ func (t *Transport) Capabilities() brine.Capabilities {
 }
 
 // Info implements brine.Transport.
-func (t *Transport) Info(context.Context) (brine.TransportInfo, error) {
-	return brine.TransportInfo{
+func (t *Transport) Info(ctx context.Context) (brine.TransportInfo, error) {
+	info := brine.TransportInfo{
 		Name:         transportName,
 		Capabilities: t.caps,
-	}, nil
+	}
+
+	t.infoMu.Lock()
+	if t.infoCached {
+		cached := t.cachedInfo
+		t.infoMu.Unlock()
+
+		return cached, nil
+	}
+	t.infoMu.Unlock()
+
+	if saltVersion, ok := t.detectSaltVersion(ctx); ok {
+		info.SaltVersion = saltVersion
+		t.infoMu.Lock()
+		t.cachedInfo = info
+		t.infoCached = true
+		t.infoMu.Unlock()
+	}
+
+	return info, nil
 }
 
 // Run implements brine.Handler.
@@ -104,7 +129,7 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 		return nil, err
 	}
 
-	body, err := t.post(ctx, "/", payload)
+	body, err := t.post(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +152,7 @@ func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, er
 		return nil, err
 	}
 
-	body, err := t.post(ctx, "/", payload)
+	body, err := t.post(ctx, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -135,13 +160,27 @@ func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, er
 	return newLocalJob(t, req, body)
 }
 
-func (t *Transport) post(ctx context.Context, path string, payload any) ([]byte, error) {
+// Resolve resolves a target by executing Salt's benign test.ping function.
+func (t *Transport) Resolve(ctx context.Context, target brine.Target) ([]string, error) {
+	result, err := t.Run(ctx, brine.Local("test.ping", target))
+	if err != nil {
+		return nil, err
+	}
+
+	return result.Returned(), nil
+}
+
+func (t *Transport) post(ctx context.Context, payload any) ([]byte, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal REST payload: %w", err)
 	}
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, t.baseURL+path, bytes.NewReader(body))
+	return t.postBody(ctx, body, true)
+}
+
+func (t *Transport) postBody(ctx context.Context, body []byte, retryAuth bool) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, t.baseURL+"/", bytes.NewReader(body))
 	if err != nil {
 		return nil, brine.NewTransportError("build request", err)
 	}
@@ -163,6 +202,10 @@ func (t *Transport) post(ctx context.Context, path string, payload any) ([]byte,
 	data, err := io.ReadAll(response.Body)
 	if err != nil {
 		return nil, brine.NewTransportError("read response", err)
+	}
+
+	if response.StatusCode == http.StatusUnauthorized && retryAuth && t.invalidateAuthToken() {
+		return t.postBody(ctx, body, false)
 	}
 
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
@@ -191,6 +234,66 @@ func (t *Transport) authenticate(ctx context.Context, request *http.Request) err
 	}
 
 	return nil
+}
+
+type tokenInvalidator interface {
+	InvalidateToken()
+}
+
+func (t *Transport) invalidateAuthToken() bool {
+	invalidator, ok := t.auth.(tokenInvalidator)
+	if !ok {
+		return false
+	}
+
+	invalidator.InvalidateToken()
+
+	return true
+}
+
+func (t *Transport) detectSaltVersion(ctx context.Context) (string, bool) {
+	body, err := t.post(ctx, []map[string]any{{
+		"client": "runner",
+		"fun":    "test.get_opts",
+	}})
+	if err != nil {
+		return "", false
+	}
+
+	saltVersion, ok := saltVersionFromGetOpts(body)
+
+	return saltVersion, ok
+}
+
+func saltVersionFromGetOpts(body []byte) (string, bool) {
+	envelope := responseEnvelope{}
+	if err := json.Unmarshal(body, &envelope); err != nil || len(envelope.Return) == 0 {
+		return "", false
+	}
+
+	var opts map[string]json.RawMessage
+	if err := json.Unmarshal(envelope.Return[0], &opts); err != nil {
+		return "", false
+	}
+
+	for _, key := range []string{"saltversion", "salt_version", "version"} {
+		var version string
+		if err := json.Unmarshal(opts[key], &version); err == nil && version != "" {
+			return version, true
+		}
+	}
+
+	var parts []int
+	if err := json.Unmarshal(opts["saltversioninfo"], &parts); err == nil && len(parts) > 0 {
+		values := make([]string, 0, len(parts))
+		for _, part := range parts {
+			values = append(values, strconv.Itoa(part))
+		}
+
+		return strings.Join(values, "."), true
+	}
+
+	return "", false
 }
 
 func unsupportedStartError(kind brine.RequestKind) error {
@@ -252,12 +355,16 @@ func lowstateEntries(req brine.Request) ([]map[string]any, error) {
 	items := make([]map[string]any, 0, len(req.Lowstate))
 
 	for _, entry := range req.Lowstate {
+		if entry.Client == "" {
+			return nil, errors.New("rest: lowstate entry requires client")
+		}
+
 		if entry.Fun == "" {
 			return nil, errors.New("rest: lowstate entry requires fun")
 		}
 
-		item := map[string]any{"fun": entry.Fun}
-		if entry.Target != "" {
+		item := map[string]any{"client": entry.Client, "fun": entry.Fun}
+		if !isEmptyLowstateTarget(entry.Target) {
 			item["tgt"] = entry.Target
 		}
 
@@ -295,26 +402,14 @@ func clientName(kind brine.RequestKind) string {
 }
 
 func addTarget(item map[string]any, target brine.Target) error {
-	switch value := target.(type) {
-	case brine.GlobTarget:
-		item["tgt"] = string(value)
-	case brine.CompoundTarget:
-		item["tgt"] = string(value)
-		item["tgt_type"] = "compound"
-	case brine.GrainTarget:
-		item["tgt"] = string(value)
-		item["tgt_type"] = "grain"
-	case brine.PillarTarget:
-		item["tgt"] = string(value)
-		item["tgt_type"] = "pillar"
-	case brine.NodeGroupTarget:
-		item["tgt"] = string(value)
-		item["tgt_type"] = "nodegroup"
-	case brine.ListTarget:
-		item["tgt"] = []string(value)
-		item["tgt_type"] = "list"
-	default:
-		return fmt.Errorf("rest: unsupported target %T", target)
+	spec, err := brine.DescribeTarget(target)
+	if err != nil {
+		return fmt.Errorf("rest: %w", err)
+	}
+
+	item["tgt"] = spec.Expression
+	if spec.Type != brine.TargetGlob {
+		item["tgt_type"] = string(spec.Type)
 	}
 
 	return nil
@@ -339,6 +434,21 @@ func addOptions(item map[string]any, opts brine.RequestOptions) {
 
 	if opts.Batch.Percent > 0 {
 		item["batch"] = fmt.Sprintf("%g%%", opts.Batch.Percent)
+	}
+}
+
+func isEmptyLowstateTarget(target any) bool {
+	switch t := target.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case []string:
+		return len(t) == 0
+	case []any:
+		return len(t) == 0
+	default:
+		return false
 	}
 }
 
