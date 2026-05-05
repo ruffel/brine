@@ -3,12 +3,13 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/ruffel/brine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunLocalPing(t *testing.T) {
@@ -17,39 +18,24 @@ func TestRunLocalPing(t *testing.T) {
 	var captured []map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/" {
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-
-		if got := request.Header.Get("X-Auth-Token"); got != "token" {
-			t.Fatalf("unexpected token: %q", got)
-		}
-
-		if err := json.NewDecoder(request.Body).Decode(&captured); err != nil {
-			t.Fatalf("decode request: %v", err)
-		}
+		assert.Equal(t, "/", request.URL.Path)
+		assert.Equal(t, "token", request.Header.Get("X-Auth-Token"))
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&captured))
 
 		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
 	}))
 	defer server.Close()
 
 	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
-	if err != nil {
-		t.Fatalf("new transport: %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	if !result.OK() {
-		t.Fatal("result should be OK")
-	}
-
-	if captured[0]["client"] != "local" || captured[0]["fun"] != "test.ping" || captured[0]["tgt"] != "*" {
-		t.Fatalf("unexpected lowstate: %#v", captured)
-	}
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	require.Len(t, captured, 1)
+	assert.Equal(t, "local", captured[0]["client"])
+	assert.Equal(t, "test.ping", captured[0]["fun"])
+	assert.Equal(t, "*", captured[0]["tgt"])
 }
 
 func TestRunListTargetFullReturnFailure(t *testing.T) {
@@ -61,27 +47,16 @@ func TestRunListTargetFullReturnFailure(t *testing.T) {
 	defer server.Close()
 
 	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
-	if err != nil {
-		t.Fatalf("new transport: %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("state.sls", brine.List("minion-1"), brine.Args("brine.fail")))
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	if result.OK() {
-		t.Fatal("result should not be OK")
-	}
-
-	if result.JID != "jid" {
-		t.Fatalf("result JID = %q, want jid", result.JID)
-	}
+	require.NoError(t, err)
+	assert.False(t, result.OK())
+	assert.Equal(t, "jid", result.JID)
 
 	failure := result.ByMinion["minion-1"].Failure
-	if failure == nil || failure.Kind != brine.FailureRetCode {
-		t.Fatalf("unexpected failure: %#v", failure)
-	}
+	require.NotNil(t, failure)
+	assert.Equal(t, brine.FailureRetCode, failure.Kind)
 }
 
 func TestRunRunnerScalar(t *testing.T) {
@@ -93,77 +68,48 @@ func TestRunRunnerScalar(t *testing.T) {
 	defer server.Close()
 
 	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
-	if err != nil {
-		t.Fatalf("new transport: %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Runner("manage.alived"))
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
+	require.NoError(t, err)
 
 	var minions []string
-	if err := result.DecodeScalar(&minions); err != nil {
-		t.Fatalf("decode scalar: %v", err)
-	}
-
-	if len(minions) != 2 || minions[0] != "minion-1" || minions[1] != "minion-2" {
-		t.Fatalf("unexpected minions: %#v", minions)
-	}
+	require.NoError(t, result.DecodeScalar(&minions))
+	assert.Equal(t, []string{"minion-1", "minion-2"}, minions)
 }
 
 func TestNoAuthOmitsToken(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("X-Auth-Token"); got != "" {
-			t.Fatalf("expected no token header, got %q", got)
-		}
-
+		assert.Empty(t, request.Header.Get("X-Auth-Token"))
 		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
 	}))
 	defer server.Close()
 
 	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
-	if err != nil {
-		t.Fatalf("new transport: %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	if !result.OK() {
-		t.Fatal("result should be OK")
-	}
+	require.NoError(t, err)
+	assert.True(t, result.OK())
 }
 
 func TestNilAuthOmitsToken(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if got := request.Header.Get("X-Auth-Token"); got != "" {
-			t.Fatalf("expected no token header, got %q", got)
-		}
-
+		assert.Empty(t, request.Header.Get("X-Auth-Token"))
 		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
 	}))
 	defer server.Close()
 
 	transport, err := New(Config{BaseURL: server.URL})
-	if err != nil {
-		t.Fatalf("new transport: %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	if !result.OK() {
-		t.Fatal("result should be OK")
-	}
+	require.NoError(t, err)
+	assert.True(t, result.OK())
 }
 
 func TestPAMAuthLogin(t *testing.T) {
@@ -177,33 +123,23 @@ func TestPAMAuthLogin(t *testing.T) {
 			loginCount++
 			_, _ = writer.Write([]byte(`{"return":[{"token":"abc","expire":4102444800}]}`))
 		case "/":
-			if got := request.Header.Get("X-Auth-Token"); got != "abc" {
-				t.Fatalf("unexpected token: %q", got)
-			}
-
+			assert.Equal(t, "abc", request.Header.Get("X-Auth-Token"))
 			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
 		default:
-			t.Fatalf("unexpected path: %s", request.URL.Path)
+			assert.Failf(t, "unexpected path", "path: %s", request.URL.Path)
 		}
 	}))
 	defer server.Close()
 
 	transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi")})
-	if err != nil {
-		t.Fatalf("new transport: %v", err)
-	}
+	require.NoError(t, err)
 
-	if _, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*"))); err != nil {
-		t.Fatalf("first run: %v", err)
-	}
+	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
 
-	if _, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*"))); err != nil {
-		t.Fatalf("second run: %v", err)
-	}
-
-	if loginCount != 1 {
-		t.Fatalf("expected one login, got %d", loginCount)
-	}
+	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	assert.Equal(t, 1, loginCount)
 }
 
 func TestUnauthorized(t *testing.T) {
@@ -215,12 +151,8 @@ func TestUnauthorized(t *testing.T) {
 	defer server.Close()
 
 	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
-	if err != nil {
-		t.Fatalf("new transport: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
-	if !errors.Is(err, brine.ErrAuth) {
-		t.Fatalf("expected auth error, got %v", err)
-	}
+	require.ErrorIs(t, err, brine.ErrAuth)
 }

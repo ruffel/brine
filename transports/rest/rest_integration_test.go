@@ -4,14 +4,14 @@ package rest
 
 import (
 	"context"
-	"errors"
-	"slices"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/ruffel/brine"
 	"github.com/ruffel/brine/internal/integration"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationRESTSyncWorkflows(t *testing.T) {
@@ -25,21 +25,13 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		defer cancel()
 
 		result, err := client.Run(ctx, brine.Local("test.ping", target))
-		if err != nil {
-			t.Fatalf("run test.ping: %v", err)
-		}
-
+		require.NoError(t, err)
 		assertReturnedMinions(t, result, minions)
 
 		pings, err := brine.DecodeByMinion[bool](result)
-		if err != nil {
-			t.Fatalf("decode ping result: %v", err)
-		}
-
+		require.NoError(t, err)
 		for _, minion := range minions {
-			if !pings[minion] {
-				t.Fatalf("%s did not return true: %#v", minion, pings)
-			}
+			assert.True(t, pings[minion], "%s should return true", minion)
 		}
 	})
 
@@ -48,13 +40,8 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		defer cancel()
 
 		result, err := client.Run(ctx, brine.Local("state.sls", target, brine.Args("brine.success")))
-		if err != nil {
-			t.Fatalf("run state.sls brine.success: %v", err)
-		}
-
-		if !result.OK() {
-			t.Fatalf("state success result should be OK: %#v", result)
-		}
+		require.NoError(t, err)
+		assert.True(t, result.OK())
 		assertReturnedMinions(t, result, minions)
 	})
 
@@ -68,13 +55,8 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 			brine.Args("brine.pillar_echo"),
 			brine.PillarData(map[string]any{"brine": map[string]any{"message": "hello from integration test"}}),
 		))
-		if err != nil {
-			t.Fatalf("run state.sls brine.pillar_echo: %v", err)
-		}
-
-		if !result.OK() {
-			t.Fatalf("state pillar result should be OK: %#v", result)
-		}
+		require.NoError(t, err)
+		assert.True(t, result.OK())
 		assertReturnedMinions(t, result, minions)
 	})
 
@@ -83,24 +65,13 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		defer cancel()
 
 		result, err := client.Run(ctx, brine.Local("state.sls", target, brine.Args("brine.conditional_fail")))
-		if err == nil {
-			t.Fatal("expected execution error from brine.conditional_fail")
-		}
+		require.Error(t, err)
 
 		var executionError *brine.ExecutionError
-		if !errors.As(err, &executionError) {
-			t.Fatalf("expected ExecutionError, got %T: %v", err, err)
-		}
-
-		if result == nil {
-			t.Fatal("expected partial result with execution error")
-		}
-
-		if !executionError.Partial() {
-			t.Fatalf("expected partial execution error: %#v", executionError.Result)
-		}
-
-		assertStrings(t, executionError.Failed(), []string{"minion-2"})
+		require.ErrorAs(t, err, &executionError)
+		require.NotNil(t, result)
+		assert.True(t, executionError.Partial())
+		assert.Equal(t, []string{"minion-2"}, executionError.Failed())
 		assertReturnedMinions(t, result, minions)
 	})
 
@@ -109,19 +80,12 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		defer cancel()
 
 		result, err := client.Run(ctx, brine.Runner("manage.alived"))
-		if err != nil {
-			t.Fatalf("run runner manage.alived: %v", err)
-		}
+		require.NoError(t, err)
 
 		var alive []string
-		if err := result.DecodeScalar(&alive); err != nil {
-			t.Fatalf("decode manage.alived result: %v", err)
-		}
-
+		require.NoError(t, result.DecodeScalar(&alive))
 		for _, minion := range minions {
-			if !slices.Contains(alive, minion) {
-				t.Fatalf("manage.alived missing %s: %#v", minion, alive)
-			}
+			assert.Contains(t, alive, minion)
 		}
 	})
 }
@@ -133,14 +97,10 @@ func newIntegrationClient(t *testing.T, env integration.SaltEnv) *brine.Client {
 		BaseURL: env.URL,
 		Auth:    integrationAuth(env),
 	})
-	if err != nil {
-		t.Fatalf("new REST transport: %v", err)
-	}
+	require.NoError(t, err)
 
 	client, err := brine.New(transport)
-	if err != nil {
-		t.Fatalf("new brine client: %v", err)
-	}
+	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
 	return client
@@ -170,5 +130,5 @@ func expectedMinionIDs(count int) []string {
 func assertReturnedMinions(t *testing.T, result *brine.Result, want []string) {
 	t.Helper()
 
-	assertStrings(t, result.Returned(), want)
+	assert.Equal(t, want, result.Returned())
 }

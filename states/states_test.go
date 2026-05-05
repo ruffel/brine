@@ -2,13 +2,14 @@ package states
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
 	"github.com/ruffel/brine"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDecodeCapturedStateFixtures(t *testing.T) {
@@ -88,33 +89,25 @@ func TestDecodeCapturedStateFixtures(t *testing.T) {
 			t.Parallel()
 
 			decoded, err := Decode(fixtureResult(t, tt.fixture))
-			if err != nil {
-				t.Fatalf("decode fixture: %v", err)
-			}
-
-			if len(decoded) != 3 {
-				t.Fatalf("decoded minions = %d, want 3", len(decoded))
-			}
+			require.NoError(t, err)
+			assert.Len(t, decoded, 3)
 
 			for minion, wantSucceeded := range tt.wantSucceeded {
 				summary := decoded[minion].Summary()
-				if summary.Succeeded != wantSucceeded || summary.Failed != 0 {
-					t.Fatalf("%s summary = %#v", minion, summary)
+				assert.Equal(t, wantSucceeded, summary.Succeeded, "%s succeeded count", minion)
+				assert.Zero(t, summary.Failed, "%s failed count", minion)
+				if tt.wantChanged != 0 {
+					assert.Equal(t, tt.wantChanged, summary.Changed, "%s changed count", minion)
 				}
-				if tt.wantChanged != 0 && summary.Changed != tt.wantChanged {
-					t.Fatalf("%s changed = %d, want %d: %#v", minion, summary.Changed, tt.wantChanged, summary)
-				}
-				if tt.wantNoOp != 0 && summary.NoOp != tt.wantNoOp {
-					t.Fatalf("%s no-op = %d, want %d: %#v", minion, summary.NoOp, tt.wantNoOp, summary)
+				if tt.wantNoOp != 0 {
+					assert.Equal(t, tt.wantNoOp, summary.NoOp, "%s no-op count", minion)
 				}
 			}
 
 			for minion, wantFailed := range tt.wantFailed {
 				summary := decoded[minion].Summary()
-				if summary.Failed != len(wantFailed) {
-					t.Fatalf("%s failed = %d, want %d: %#v", minion, summary.Failed, len(wantFailed), summary)
-				}
-				assertStrings(t, summary.FailedStates, wantFailed)
+				assert.Equal(t, len(wantFailed), summary.Failed, "%s failed count", minion)
+				assert.Equal(t, wantFailed, summary.FailedStates, "%s failed states", minion)
 			}
 		})
 	}
@@ -127,14 +120,12 @@ func TestSummaryReportsTestMode(t *testing.T) {
 		Minion: "minion-1",
 		Return: json.RawMessage(`{"state_|-dry_run_|-dry run_|-test":{"__id__":"dry_run","name":"dry run","result":null,"changes":{},"comment":"would change"}}`),
 	})
-	if err != nil {
-		t.Fatalf("decode test-mode return: %v", err)
-	}
+	require.NoError(t, err)
 
 	summary := decoded.Summary()
-	if summary.TestMode != 1 || summary.Succeeded != 0 || summary.Failed != 0 {
-		t.Fatalf("unexpected summary: %#v", summary)
-	}
+	assert.Equal(t, 1, summary.TestMode)
+	assert.Zero(t, summary.Succeeded)
+	assert.Zero(t, summary.Failed)
 }
 
 func TestDecodeRejectsMalformedStateReturns(t *testing.T) {
@@ -147,9 +138,7 @@ func TestDecodeRejectsMalformedStateReturns(t *testing.T) {
 
 	for _, raw := range malformed {
 		_, err := DecodeMinion(brine.MinionResult{Minion: "minion-1", RetCode: 1, Return: raw})
-		if !errors.Is(err, ErrInvalidStateReturn) {
-			t.Fatalf("expected ErrInvalidStateReturn for %s, got %v", raw, err)
-		}
+		require.ErrorIs(t, err, ErrInvalidStateReturn)
 	}
 }
 
@@ -158,19 +147,13 @@ func TestMalformedStateRetryPredicate(t *testing.T) {
 
 	req := SLS(brine.List("minion-1"), "brine.success")
 	malformed := brine.MinionResult{Minion: "minion-1", RetCode: 1, Return: json.RawMessage(`"State lock is held"`)}
-	if !MalformedStateRetryPredicate(req, malformed) {
-		t.Fatal("expected malformed state return to be retryable")
-	}
+	assert.True(t, MalformedStateRetryPredicate(req, malformed))
 
 	normalFailure := brine.MinionResult{Minion: "minion-1", RetCode: 1, Return: json.RawMessage(`{"state":{"result":false}}`)}
-	if MalformedStateRetryPredicate(req, normalFailure) {
-		t.Fatal("expected normal failed state map not to be retryable")
-	}
+	assert.False(t, MalformedStateRetryPredicate(req, normalFailure))
 
 	nonState := brine.Local("test.ping", brine.List("minion-1"))
-	if MalformedStateRetryPredicate(nonState, malformed) {
-		t.Fatal("expected non-state request not to be retryable")
-	}
+	assert.False(t, MalformedStateRetryPredicate(nonState, malformed))
 }
 
 func fixtureResult(t *testing.T, name string) *brine.Result {
@@ -180,12 +163,8 @@ func fixtureResult(t *testing.T, name string) *brine.Result {
 	var envelope struct {
 		Return []map[string]json.RawMessage `json:"return"`
 	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		t.Fatalf("decode fixture envelope: %v", err)
-	}
-	if len(envelope.Return) != 1 {
-		t.Fatalf("fixture return entries = %d, want 1", len(envelope.Return))
-	}
+	require.NoError(t, json.Unmarshal(body, &envelope))
+	require.Len(t, envelope.Return, 1)
 
 	req := SLS(brine.Glob("*"), "brine.fixture")
 	result := &brine.Result{
@@ -205,29 +184,11 @@ func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 
 	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t, ok, "runtime.Caller failed")
 
 	path := filepath.Join(filepath.Dir(file), "..", "test", "integration", "fixtures", "rest", name)
 	body, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read fixture %s: %v", path, err)
-	}
+	require.NoError(t, err, "read fixture %s", path)
 
 	return body
-}
-
-func assertStrings(t *testing.T, got []string, want []string) {
-	t.Helper()
-
-	if len(got) != len(want) {
-		t.Fatalf("values = %#v, want %#v", got, want)
-	}
-
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("values = %#v, want %#v", got, want)
-		}
-	}
 }

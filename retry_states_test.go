@@ -7,6 +7,8 @@ import (
 
 	"github.com/ruffel/brine"
 	"github.com/ruffel/brine/states"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithRetryUsesMalformedStateRetryPredicate(t *testing.T) {
@@ -17,28 +19,17 @@ func TestWithRetryUsesMalformedStateRetryPredicate(t *testing.T) {
 		MaxAttempts: 2,
 		Predicate:   states.MalformedStateRetryPredicate,
 	})))
-	if err != nil {
-		t.Fatalf("new client: %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := client.Run(context.Background(), states.SLS(brine.Glob("*"), "brine.success"))
-	if err != nil {
-		t.Fatalf("run with retry: %v", err)
-	}
-
-	if !result.OK() {
-		t.Fatalf("result should be OK after malformed state retry: %#v", result)
-	}
-
-	assertTestStrings(t, result.Returned(), []string{"minion-1", "minion-2"})
-	if transport.calls != 2 {
-		t.Fatalf("calls = %d, want 2", transport.calls)
-	}
+	require.NoError(t, err)
+	require.True(t, result.OK(), "result should be OK after malformed state retry")
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+	assert.Equal(t, 2, transport.calls)
 
 	target, ok := transport.retryTarget.(brine.ListTarget)
-	if !ok || len(target) != 1 || target[0] != "minion-2" {
-		t.Fatalf("retry target = %#v, want list target for minion-2", transport.retryTarget)
-	}
+	require.True(t, ok, "retry target should be a list target")
+	assert.Equal(t, brine.ListTarget{"minion-2"}, target)
 }
 
 type stateRetryTransport struct {
@@ -79,19 +70,5 @@ func successfulStateMinion(minion string) brine.MinionResult {
 	return brine.MinionResult{
 		Minion: minion,
 		Return: json.RawMessage(`{"test_|-ok_|-ok_|-succeed_without_changes":{"__id__":"ok","name":"ok","result":true,"changes":{},"comment":"Success!"}}`),
-	}
-}
-
-func assertTestStrings(t *testing.T, got []string, want []string) {
-	t.Helper()
-
-	if len(got) != len(want) {
-		t.Fatalf("values = %#v, want %#v", got, want)
-	}
-
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("values = %#v, want %#v", got, want)
-		}
 	}
 }

@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithRetryRetriesSelectedMinionsAndPreservesSuccess(t *testing.T) {
@@ -16,29 +19,17 @@ func TestWithRetryRetriesSelectedMinionsAndPreservesSuccess(t *testing.T) {
 			return req.Kind == KindLocal && req.Function == "state.sls" && result.Minion == "minion-2"
 		},
 	})))
-	if err != nil {
-		t.Fatalf("new client: %v", err)
-	}
+	require.NoError(t, err)
 
 	result, err := client.Run(context.Background(), Local("state.sls", Glob("*"), Args("brine.test")))
-	if err != nil {
-		t.Fatalf("run with retry: %v", err)
-	}
+	require.NoError(t, err)
+	require.True(t, result.OK(), "result should be OK after retry")
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+	assert.Equal(t, 2, transport.calls)
 
-	if !result.OK() {
-		t.Fatalf("result should be OK after retry: %#v", result)
-	}
-
-	returned := result.Returned()
-	assertRetryStrings(t, returned, []string{"minion-1", "minion-2"})
-
-	if transport.calls != 2 {
-		t.Fatalf("calls = %d, want 2", transport.calls)
-	}
-
-	if target, ok := transport.retryTarget.(ListTarget); !ok || len(target) != 1 || target[0] != "minion-2" {
-		t.Fatalf("retry target = %#v, want list target for minion-2", transport.retryTarget)
-	}
+	target, ok := transport.retryTarget.(ListTarget)
+	require.True(t, ok, "retry target should be a list target")
+	assert.Equal(t, ListTarget{"minion-2"}, target)
 }
 
 type scriptedRetryTransport struct {
@@ -79,19 +70,5 @@ func successfulRetryMinion(minion string) MinionResult {
 	return MinionResult{
 		Minion: minion,
 		Return: json.RawMessage(`{"ok":true}`),
-	}
-}
-
-func assertRetryStrings(t *testing.T, got []string, want []string) {
-	t.Helper()
-
-	if len(got) != len(want) {
-		t.Fatalf("values = %#v, want %#v", got, want)
-	}
-
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("values = %#v, want %#v", got, want)
-		}
 	}
 }
