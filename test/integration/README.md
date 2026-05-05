@@ -47,6 +47,24 @@ Wait for all minions to respond:
 test/integration/scripts/wait-ready.sh
 ```
 
+Run integration-tagged tests that do not require a live Salt endpoint:
+
+```sh
+just integration-test
+```
+
+Run REST contract/parity tests against the live Salt environment:
+
+```sh
+just contract-rest
+```
+
+Run all REST integration tests against the live Salt environment:
+
+```sh
+just integration-test-rest
+```
+
 Capture sanitized REST fixtures:
 
 ```sh

@@ -33,6 +33,18 @@ integration-up:
 integration-ready:
     test/integration/scripts/wait-ready.sh
 
+# Run all integration-tagged tests that do not require a live Salt endpoint
+integration-test:
+    go test -tags=integration ./...
+
+# Run REST transport contract tests against the Salt integration environment
+contract-rest: integration-ready
+    BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -run TestIntegrationRESTContracts -count=1 -v
+
+# Run all REST integration tests against the Salt integration environment
+integration-test-rest: integration-ready
+    BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -count=1 -v
+
 # Capture sanitized REST fixtures from the Salt integration environment
 integration-capture-rest:
     test/integration/scripts/capture-rest-fixtures.sh
