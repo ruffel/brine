@@ -61,9 +61,11 @@ func New(config Config) (*Transport, error) {
 		caps: brine.NewCapabilities(
 			brine.CapSynchronousRun,
 			brine.CapLocalRun,
+			brine.CapLocalStart,
 			brine.CapRunnerRun,
 			brine.CapWheelRun,
 			brine.CapLowstate,
+			brine.CapJobLookup,
 		),
 	}, nil
 }
@@ -98,6 +100,29 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 	}
 
 	return normalize(req, body)
+}
+
+// Start dispatches asynchronous Salt work through REST.
+func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	if req.Kind != brine.KindLocal {
+		return nil, unsupportedStartError(req.Kind)
+	}
+
+	payload, err := asyncLocalPayload(req)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := t.post(ctx, "/", payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return newLocalJob(t, req, body)
 }
 
 func (t *Transport) post(ctx context.Context, path string, payload any) ([]byte, error) {
@@ -146,6 +171,32 @@ func (t *Transport) post(ctx context.Context, path string, payload any) ([]byte,
 	}
 
 	return data, nil
+}
+
+func unsupportedStartError(kind brine.RequestKind) error {
+	switch kind {
+	case brine.KindRunner:
+		return &brine.UnsupportedError{Capability: brine.CapRunnerStart, Operation: "Start"}
+	case brine.KindWheel:
+		return &brine.UnsupportedError{Capability: brine.CapWheelStart, Operation: "Start"}
+	case brine.KindLowstate:
+		return &brine.UnsupportedError{Capability: brine.CapLowstate, Operation: "Start"}
+	case brine.KindLocal:
+		return nil
+	default:
+		return &brine.UnsupportedError{Operation: "Start"}
+	}
+}
+
+func asyncLocalPayload(req brine.Request) ([]map[string]any, error) {
+	payload, err := lowstatePayload(req)
+	if err != nil {
+		return nil, err
+	}
+
+	payload[0]["client"] = "local_async"
+
+	return payload, nil
 }
 
 func lowstatePayload(req brine.Request) ([]map[string]any, error) {

@@ -75,6 +75,25 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		assertReturnedMinions(t, result, minions)
 	})
 
+	t.Run("async local wait", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		job, err := client.Start(ctx, brine.Local("test.ping", target))
+		require.NoError(t, err)
+		assert.NotEmpty(t, job.ID())
+
+		local, ok := job.(brine.LocalJob)
+		require.True(t, ok)
+		assert.Equal(t, minions, local.ExpectedMinions())
+
+		result, err := job.Wait(ctx)
+		require.NoError(t, err)
+		assert.True(t, result.OK())
+		assert.Equal(t, job.ID(), result.JID)
+		assertReturnedMinions(t, result, minions)
+	})
+
 	t.Run("runner scalar", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 		defer cancel()

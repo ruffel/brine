@@ -142,6 +142,75 @@ func TestPAMAuthLogin(t *testing.T) {
 	assert.Equal(t, 1, loginCount)
 }
 
+func TestStartLocalAsyncAndWait(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+
+		var payload []map[string]any
+		if !assert.NoError(t, json.NewDecoder(request.Body).Decode(&payload)) {
+			return
+		}
+
+		if !assert.Len(t, payload, 1) {
+			return
+		}
+
+		switch requestCount {
+		case 1:
+			assert.Equal(t, "local_async", payload[0]["client"])
+			assert.Equal(t, "test.ping", payload[0]["fun"])
+			assert.Equal(t, "*", payload[0]["tgt"])
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":["minion-1","minion-2"]}]}`))
+		case 2:
+			assert.Equal(t, "runner", payload[0]["client"])
+			assert.Equal(t, "jobs.lookup_jid", payload[0]["fun"])
+			assert.Equal(t, []any{"jid"}, payload[0]["arg"])
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		default:
+			t.Fatalf("unexpected request %d: %#v", requestCount, payload)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	assert.Equal(t, "jid", job.ID())
+
+	local, ok := job.(brine.LocalJob)
+	require.True(t, ok)
+	assert.Equal(t, []string{"minion-1", "minion-2"}, local.ExpectedMinions())
+
+	_, err = job.Events(context.Background())
+	require.ErrorIs(t, err, brine.ErrUnsupported)
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+	assert.Equal(t, "jid", result.JID)
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+
+	cached, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.Same(t, result, cached)
+	assert.Equal(t, 2, requestCount)
+}
+
+func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
+	t.Parallel()
+
+	transport, err := New(Config{BaseURL: "http://127.0.0.1:8000", Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	_, err = transport.Start(context.Background(), brine.Runner("manage.alived"))
+	require.ErrorIs(t, err, brine.ErrUnsupported)
+}
+
 func TestUnauthorized(t *testing.T) {
 	t.Parallel()
 
