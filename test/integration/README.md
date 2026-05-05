@@ -99,6 +99,8 @@ In `noauth` mode the capture script skips `/login` and does not send
 - `state.sls brine.pillar_echo` with per-run pillar
 - `runner.manage.alived`
 - `runner.jobs.active`
+- async `test.ping` start and `jobs.lookup_jid`
+- async `state.sls brine.conditional_fail` start and `jobs.lookup_jid`
 
 Fixtures are sanitized in place by `sanitize-fixtures.sh`.
 

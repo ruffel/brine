@@ -101,6 +101,40 @@ func TestNormalizeCapturedRunnerScalarFixture(t *testing.T) {
 	assert.Len(t, minions, 3)
 }
 
+func TestNormalizeCapturedAsyncFixtures(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.Glob("*"))
+	job, err := newLocalJob(nil, req, readRESTFixture(t, "async_test_ping_start.json"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"minion-1", "minion-2", "minion-3"}, job.ExpectedMinions())
+
+	result, err := normalizeJobLookup(req, "fixture-jid", job.ExpectedMinions(), readRESTFixture(t, "async_test_ping_lookup.json"))
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+	assert.Equal(t, "fixture-jid", result.JID)
+	assert.Equal(t, []string{"minion-1", "minion-2", "minion-3"}, result.Returned())
+}
+
+func TestNormalizeCapturedAsyncFailureFixture(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("state.sls", brine.Glob("*"), brine.Args("brine.conditional_fail"))
+	job, err := newLocalJob(nil, req, readRESTFixture(t, "async_state_conditional_fail_start.json"))
+	require.NoError(t, err)
+
+	result, err := normalizeJobLookup(
+		req,
+		"fixture-jid",
+		job.ExpectedMinions(),
+		readRESTFixture(t, "async_state_conditional_fail_lookup.json"),
+	)
+	require.NoError(t, err)
+	assert.False(t, result.OK())
+	assert.Equal(t, []string{"minion-2"}, failedMinions(result))
+	assert.Equal(t, []string{"minion-1", "minion-2", "minion-3"}, result.Returned())
+}
+
 func TestNormalizeCapturedRunnerMapFixture(t *testing.T) {
 	t.Parallel()
 
@@ -129,9 +163,19 @@ func readRESTFixture(t *testing.T, name string) []byte {
 func assertFailedMinions(t *testing.T, result *brine.Result, want []string) {
 	t.Helper()
 
-	failures := result.Failures()
-	require.Len(t, failures, len(want))
-	for i, minion := range want {
-		assert.Equal(t, minion, failures[i].Minion)
+	if want == nil {
+		want = []string{}
 	}
+
+	assert.Equal(t, want, failedMinions(result))
+}
+
+func failedMinions(result *brine.Result) []string {
+	failures := result.Failures()
+	minions := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		minions = append(minions, failure.Minion)
+	}
+
+	return minions
 }

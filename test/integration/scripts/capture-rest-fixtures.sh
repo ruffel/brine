@@ -60,13 +60,68 @@ PY
 fi
 
 post_lowstate() {
-  name="$1"
-  payload="$2"
-  headers=(-H 'Accept: application/json' -H 'Content-Type: application/json')
+  local name="$1"
+  local payload="$2"
+  local headers=(-H 'Accept: application/json' -H 'Content-Type: application/json')
   if [[ -n "${TOKEN}" ]]; then
     headers+=(-H "X-Auth-Token: ${TOKEN}")
   fi
   curl_json "${name}" "${SALT_URL}/" "${payload}" "${FIXTURE_DIR}/${name}.json" "${headers[@]}"
+}
+
+fixture_jid() {
+  local path="$1"
+  python3 - "${path}" <<'PY'
+import json
+import sys
+from pathlib import Path
+body = json.loads(Path(sys.argv[1]).read_text())
+print(body['return'][0]['jid'])
+PY
+}
+
+lookup_count() {
+  local path="$1"
+  python3 - "${path}" <<'PY'
+import json
+import sys
+from pathlib import Path
+try:
+    item = json.loads(Path(sys.argv[1]).read_text())['return'][0]
+    if isinstance(item, dict) and isinstance(item.get('data'), dict):
+        item = item['data']
+    print(len(item) if isinstance(item, dict) else 0)
+except Exception:
+    print(0)
+PY
+}
+
+capture_async() {
+  local name="$1"
+  local payload="$2"
+  local expected_count="${3:-3}"
+  local jid
+  local lookup_payload
+
+  post_lowstate "${name}_start" "${payload}"
+  jid="$(fixture_jid "${FIXTURE_DIR}/${name}_start.json")"
+  lookup_payload="$(JID="${jid}" python3 - <<'PY'
+import json
+import os
+print(json.dumps([{'client': 'runner', 'fun': 'jobs.lookup_jid', 'arg': [os.environ['JID']]}]))
+PY
+)"
+
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    post_lowstate "${name}_lookup" "${lookup_payload}"
+    if [[ "$(lookup_count "${FIXTURE_DIR}/${name}_lookup.json")" -ge "${expected_count}" ]]; then
+      return
+    fi
+    sleep 1
+  done
+
+  printf 'Timed out waiting for async fixture %s lookup to contain %s returns\n' "${name}" "${expected_count}" >&2
+  exit 1
 }
 
 post_lowstate test_ping '[{"client":"local","tgt":"*","fun":"test.ping"}]'
@@ -81,6 +136,9 @@ post_lowstate state_pillar_echo '[{"client":"local","tgt":"*","fun":"state.sls",
 rm -f "${FIXTURE_DIR}/state_pillar_echo_warmup.json"
 post_lowstate runner_manage_alived '[{"client":"runner","fun":"manage.alived"}]'
 post_lowstate runner_jobs_active '[{"client":"runner","fun":"jobs.active"}]'
+
+capture_async async_test_ping '[{"client":"local_async","tgt":"*","fun":"test.ping"}]'
+capture_async async_state_conditional_fail '[{"client":"local_async","tgt":"*","fun":"state.sls","arg":["brine.conditional_fail"]}]'
 
 "${ROOT_DIR}/scripts/sanitize-fixtures.sh" "${FIXTURE_DIR}"/*.json
 printf 'Captured sanitized REST fixtures in %s\n' "${FIXTURE_DIR}"

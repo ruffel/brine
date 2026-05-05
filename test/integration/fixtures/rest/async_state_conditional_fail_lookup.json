@@ -1,0 +1,56 @@
+{
+  "return": [
+    {
+      "data": {
+        "minion-1": {
+          "test_|-brine_conditional_success_|-brine conditional success_|-succeed_without_changes": {
+            "__id__": "brine_conditional_success",
+            "__run_num__": 0,
+            "__sls__": "brine.conditional_fail",
+            "changes": {},
+            "comment": "Success!",
+            "duration": "<redacted>",
+            "name": "brine conditional success",
+            "result": true,
+            "start_time": "<redacted>"
+          }
+        },
+        "minion-2": {
+          "test_|-brine_conditional_failure_|-brine conditional failure on minion-2_|-fail_without_changes": {
+            "__id__": "brine_conditional_failure",
+            "__run_num__": 0,
+            "__sls__": "brine.conditional_fail",
+            "_stamp": "<redacted>",
+            "changes": {},
+            "comment": "Failure!",
+            "duration": "<redacted>",
+            "fun": "state.sls",
+            "id": "<redacted>",
+            "jid": "<redacted>",
+            "name": "brine conditional failure on minion-2",
+            "result": false,
+            "retcode": 2,
+            "return": "Error: test.fail_without_changes",
+            "start_time": "<redacted>",
+            "success": false,
+            "user": "saltapi"
+          }
+        },
+        "minion-3": {
+          "test_|-brine_conditional_success_|-brine conditional success_|-succeed_without_changes": {
+            "__id__": "brine_conditional_success",
+            "__run_num__": 0,
+            "__sls__": "brine.conditional_fail",
+            "changes": {},
+            "comment": "Success!",
+            "duration": "<redacted>",
+            "name": "brine conditional success",
+            "result": true,
+            "start_time": "<redacted>"
+          }
+        }
+      },
+      "outputter": "highstate"
+    }
+  ]
+}

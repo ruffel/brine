@@ -1,0 +1,12 @@
+{
+  "return": [
+    {
+      "jid": "<redacted>",
+      "minions": [
+        "minion-1",
+        "minion-2",
+        "minion-3"
+      ]
+    }
+  ]
+}
