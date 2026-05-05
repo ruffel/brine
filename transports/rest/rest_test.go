@@ -6,11 +6,35 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ruffel/brine"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const asyncStateFailureResponse = `{
+  "return": [{
+    "minion-1": {
+      "test_|-ok_|-ok_|-succeed_without_changes": {
+        "__id__": "ok",
+        "name": "ok",
+        "result": true,
+        "changes": {},
+        "comment": "Success!"
+      }
+    },
+    "minion-2": {
+      "test_|-fail_|-fail_|-fail_without_changes": {
+        "__id__": "fail",
+        "name": "fail",
+        "result": false,
+        "changes": {},
+        "comment": "Failure!"
+      }
+    }
+  }]
+}`
 
 func TestRunLocalPing(t *testing.T) {
 	t.Parallel()
@@ -201,6 +225,111 @@ func TestStartLocalAsyncAndWait(t *testing.T) {
 	assert.Equal(t, 2, requestCount)
 }
 
+func TestStartLocalAsyncWaitWrappedLookupData(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		switch requestCount {
+		case 1:
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":["minion-1","minion-2"]}]}`))
+		case 2:
+			_, _ = writer.Write([]byte(`{"return":[{"data":{"minion-1":true,"minion-2":true},"outputter":"nested"}]}`))
+		default:
+			t.Fatalf("unexpected request %d", requestCount)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+}
+
+func TestStartLocalAsyncWaitExecutionError(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		switch requestCount {
+		case 1:
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":["minion-1","minion-2"]}]}`))
+		case 2:
+			_, _ = writer.Write([]byte(asyncStateFailureResponse))
+		default:
+			t.Fatalf("unexpected request %d", requestCount)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("state.sls", brine.Glob("*"), brine.Args("brine.conditional_fail")))
+	require.NoError(t, err)
+
+	result, err := job.Wait(context.Background())
+	require.Error(t, err)
+
+	var executionError *brine.ExecutionError
+	require.ErrorAs(t, err, &executionError)
+	require.NotNil(t, result)
+	assert.False(t, result.OK())
+	assert.True(t, executionError.Partial())
+	assert.Equal(t, []string{"minion-2"}, executionError.Failed())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+}
+
+func TestStartLocalAsyncWaitReturnsPartialOnMissingMinionCancellation(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		switch requestCount {
+		case 1:
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":["minion-1","minion-2"]}]}`))
+		default:
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	result, err := job.Wait(ctx)
+	require.Error(t, err)
+
+	var executionError *brine.ExecutionError
+	require.ErrorAs(t, err, &executionError)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"minion-2"}, executionError.Missing())
+	assert.Equal(t, []string{"minion-1"}, result.Returned())
+	assert.Equal(t, 2, requestCount)
+}
+
 func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 	t.Parallel()
 
@@ -209,6 +338,14 @@ func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 
 	_, err = transport.Start(context.Background(), brine.Runner("manage.alived"))
 	require.ErrorIs(t, err, brine.ErrUnsupported)
+}
+
+func decodeRESTPayload(t *testing.T, request *http.Request) {
+	t.Helper()
+
+	var payload []map[string]any
+	require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+	require.Len(t, payload, 1)
 }
 
 func TestUnauthorized(t *testing.T) {

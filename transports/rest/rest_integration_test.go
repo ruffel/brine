@@ -85,12 +85,30 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 
 		local, ok := job.(brine.LocalJob)
 		require.True(t, ok)
-		assert.Equal(t, minions, local.ExpectedMinions())
+		assert.ElementsMatch(t, minions, local.ExpectedMinions())
 
 		result, err := job.Wait(ctx)
 		require.NoError(t, err)
 		assert.True(t, result.OK())
 		assert.Equal(t, job.ID(), result.JID)
+		assertReturnedMinions(t, result, minions)
+	})
+
+	t.Run("async state partial failure", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		job, err := client.Start(ctx, brine.Local("state.sls", target, brine.Args("brine.conditional_fail")))
+		require.NoError(t, err)
+
+		result, err := job.Wait(ctx)
+		require.Error(t, err)
+
+		var executionError *brine.ExecutionError
+		require.ErrorAs(t, err, &executionError)
+		require.NotNil(t, result)
+		assert.True(t, executionError.Partial())
+		assert.Equal(t, []string{"minion-2"}, executionError.Failed())
 		assertReturnedMinions(t, result, minions)
 	})
 

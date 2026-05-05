@@ -146,13 +146,24 @@ func normalizeJobLookup(req brine.Request, jid string, expected []string, body [
 		Request: &req,
 		Raw:     append([]byte(nil), body...),
 	}
-	if err := normalizeLocal(result, envelope.Return[0]); err != nil {
+	if err := normalizeLocal(result, jobLookupReturnData(envelope.Return[0])); err != nil {
 		return nil, err
 	}
 
 	applyJobExpected(result, jid, expected)
 
 	return result, nil
+}
+
+func jobLookupReturnData(raw json.RawMessage) json.RawMessage {
+	var wrapped struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err == nil && len(wrapped.Data) > 0 {
+		return wrapped.Data
+	}
+
+	return raw
 }
 
 func applyJobExpected(result *brine.Result, jid string, expected []string) {
