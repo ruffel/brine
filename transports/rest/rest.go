@@ -65,6 +65,7 @@ func New(config Config) (*Transport, error) {
 			brine.CapRunnerRun,
 			brine.CapWheelRun,
 			brine.CapLowstate,
+			brine.CapEvents,
 			brine.CapJobLookup,
 		),
 	}, nil
@@ -139,15 +140,8 @@ func (t *Transport) post(ctx context.Context, path string, payload any) ([]byte,
 	request.Header.Set("Accept", contentTypeJSON)
 	request.Header.Set("Content-Type", contentTypeJSON)
 
-	if t.auth != nil {
-		token, err := t.auth.Token(ctx, t.client, t.baseURL)
-		if err != nil {
-			return nil, err
-		}
-
-		if token != "" {
-			request.Header.Set("X-Auth-Token", token)
-		}
+	if err := t.authenticate(ctx, request); err != nil {
+		return nil, err
 	}
 
 	response, err := t.client.Do(request)
@@ -171,6 +165,23 @@ func (t *Transport) post(ctx context.Context, path string, payload any) ([]byte,
 	}
 
 	return data, nil
+}
+
+func (t *Transport) authenticate(ctx context.Context, request *http.Request) error {
+	if t.auth == nil {
+		return nil
+	}
+
+	token, err := t.auth.Token(ctx, t.client, t.baseURL)
+	if err != nil {
+		return err
+	}
+
+	if token != "" {
+		request.Header.Set("X-Auth-Token", token)
+	}
+
+	return nil
 }
 
 func unsupportedStartError(kind brine.RequestKind) error {

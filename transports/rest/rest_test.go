@@ -210,9 +210,6 @@ func TestStartLocalAsyncAndWait(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, []string{"minion-1", "minion-2"}, local.ExpectedMinions())
 
-	_, err = job.Events(context.Background())
-	require.ErrorIs(t, err, brine.ErrUnsupported)
-
 	result, err := job.Wait(context.Background())
 	require.NoError(t, err)
 	assert.True(t, result.OK())

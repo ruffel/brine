@@ -87,8 +87,12 @@ func (j *localJob) Wait(ctx context.Context) (*brine.Result, error) {
 	return j.result, j.err
 }
 
-func (j *localJob) Events(context.Context) (brine.EventStream, error) {
-	return nil, &brine.UnsupportedError{Capability: brine.CapEvents, Operation: "Job.Events"}
+func (j *localJob) Events(ctx context.Context) (brine.EventStream, error) {
+	if j.transport == nil {
+		return nil, &brine.UnsupportedError{Capability: brine.CapEvents, Operation: "Job.Events"}
+	}
+
+	return j.transport.Subscribe(ctx, brine.EventFilter{JID: j.jid})
 }
 
 func (j *localJob) wait(ctx context.Context) (*brine.Result, error) {
