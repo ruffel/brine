@@ -47,6 +47,63 @@ func TestSubscribeReceivesFilteredSSEEvents(t *testing.T) {
 	require.ErrorIs(t, err, io.EOF)
 }
 
+func TestSubscribeNormalizesMinionReturnEvents(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("tag: salt/job/111/ret/minion-1\n"))
+		_, _ = writer.Write([]byte("data: {\"jid\":\"111\",\"id\":\"minion-1\",\"return\":true,\"retcode\":0,\"success\":true}\n\n"))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{Tags: []string{"salt/job/111"}})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	event, err := stream.Recv(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, brine.EventMinionReturned, event.Type)
+	assert.Equal(t, "111", event.JID)
+	assert.Equal(t, "minion-1", event.Minion)
+
+	payload, ok := event.MinionReturned()
+	require.True(t, ok)
+	assert.Equal(t, "minion-1", payload.Result.Minion)
+	assert.Equal(t, "111", payload.Result.JID)
+	assert.JSONEq(t, `true`, string(payload.Result.Return))
+	assert.Nil(t, payload.Result.Failure)
+}
+
+func TestSubscribeNormalizesFailedMinionReturnEvents(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("tag: salt/job/111/ret/minion-1\n"))
+		_, _ = writer.Write([]byte("data: {\"jid\":\"111\",\"id\":\"minion-1\",\"return\":false,\"retcode\":1,\"success\":false}\n\n"))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{JID: "111"})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	event, err := stream.Recv(context.Background())
+	require.NoError(t, err)
+
+	payload, ok := event.MinionReturned()
+	require.True(t, ok)
+	require.NotNil(t, payload.Result.Failure)
+	assert.Equal(t, brine.FailureRetCode, payload.Result.Failure.Kind)
+}
+
 func TestSubscribeReportsAuthErrors(t *testing.T) {
 	t.Parallel()
 

@@ -16,7 +16,12 @@ import (
 	"github.com/ruffel/brine"
 )
 
-const eventStreamPath = "/events"
+const (
+	eventStreamPath = "/events"
+	saltTagRoot     = "salt"
+	saltTagJob      = "job"
+	saltTagReturn   = "ret"
+)
 
 type eventStream struct {
 	body    io.ReadCloser
@@ -102,7 +107,7 @@ func (s *eventStream) Recv(ctx context.Context) (brine.Event, error) {
 		}
 
 		event := frame.event()
-		if eventMatchesFilter(event, s.filter) {
+		if eventMatchesFilter(event, s.filter, frame.tag) {
 			return event, nil
 		}
 	}
@@ -162,6 +167,17 @@ func (s *eventStream) nextFrame() (saltEventFrame, error) {
 }
 
 func (f saltEventFrame) event() brine.Event {
+	if ret, ok := f.minionReturn(); ok {
+		return brine.Event{
+			Type:      brine.EventMinionReturned,
+			Timestamp: time.Now(),
+			JID:       ret.JID,
+			Minion:    ret.Minion,
+			Payload:   brine.MinionReturnedPayload{Result: ret},
+			Raw:       append([]byte(nil), f.data...),
+		}
+	}
+
 	return brine.Event{
 		Type:      brine.EventRawSalt,
 		Timestamp: time.Now(),
@@ -170,6 +186,69 @@ func (f saltEventFrame) event() brine.Event {
 		Payload:   brine.RawSaltPayload{Tag: f.tag},
 		Raw:       append([]byte(nil), f.data...),
 	}
+}
+
+func (f saltEventFrame) minionReturn() (brine.MinionResult, bool) {
+	if !isMinionReturnTag(f.tag) {
+		return brine.MinionResult{}, false
+	}
+
+	var body struct {
+		JID     string          `json:"jid"`
+		ID      string          `json:"id"`
+		Minion  string          `json:"minion"`
+		Return  json.RawMessage `json:"return"`
+		RetCode int             `json:"retcode"`
+		Success *bool           `json:"success"`
+		Error   string          `json:"error"`
+	}
+	if err := json.Unmarshal(f.data, &body); err != nil || len(body.Return) == 0 {
+		return brine.MinionResult{}, false
+	}
+
+	ret := brine.MinionResult{
+		Minion:  firstNonEmpty(body.ID, body.Minion, minionFromReturnTag(f.tag)),
+		JID:     firstNonEmpty(body.JID, eventJID(f.tag, f.data)),
+		RetCode: body.RetCode,
+		Return:  append([]byte(nil), body.Return...),
+		Raw:     append([]byte(nil), f.data...),
+	}
+
+	switch {
+	case body.Error != "":
+		ret.Failure = &brine.Failure{Kind: brine.FailureMinionException, Message: body.Error, Raw: append([]byte(nil), f.data...)}
+	case body.RetCode != 0:
+		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", body.RetCode), Raw: append([]byte(nil), f.data...)}
+	case body.Success != nil && !*body.Success:
+		ret.Failure = &brine.Failure{Kind: brine.FailureUnknown, Message: "Salt return marked unsuccessful", Raw: append([]byte(nil), f.data...)}
+	}
+
+	return ret, ret.Minion != "" && ret.JID != ""
+}
+
+func isMinionReturnTag(tag string) bool {
+	parts := strings.Split(tag, "/")
+
+	return len(parts) >= 5 && parts[0] == saltTagRoot && parts[1] == saltTagJob && parts[3] == saltTagReturn
+}
+
+func minionFromReturnTag(tag string) string {
+	parts := strings.Split(tag, "/")
+	if len(parts) >= 5 && parts[0] == saltTagRoot && parts[1] == saltTagJob && parts[3] == saltTagReturn {
+		return parts[4]
+	}
+
+	return ""
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+
+	return ""
 }
 
 func eventJID(tag string, raw json.RawMessage) string {
@@ -183,7 +262,7 @@ func eventJID(tag string, raw json.RawMessage) string {
 
 	parts := strings.Split(tag, "/")
 	for i, part := range parts {
-		if part == "job" && i+1 < len(parts) {
+		if part == saltTagJob && i+1 < len(parts) {
 			return parts[i+1]
 		}
 	}
@@ -207,7 +286,7 @@ func eventMinion(raw json.RawMessage) string {
 	return ""
 }
 
-func eventMatchesFilter(event brine.Event, filter brine.EventFilter) bool {
+func eventMatchesFilter(event brine.Event, filter brine.EventFilter, tag string) bool {
 	if filter.JID != "" && event.JID != filter.JID {
 		return false
 	}
@@ -220,9 +299,8 @@ func eventMatchesFilter(event brine.Event, filter brine.EventFilter) bool {
 		return true
 	}
 
-	payload, _ := event.Payload.(brine.RawSaltPayload)
-	for _, tag := range filter.Tags {
-		if payload.Tag == tag || strings.HasPrefix(payload.Tag, tag) {
+	for _, filterTag := range filter.Tags {
+		if tag == filterTag || strings.HasPrefix(tag, filterTag) {
 			return true
 		}
 	}

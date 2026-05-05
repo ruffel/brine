@@ -67,6 +67,7 @@ func New(config Config) (*Transport, error) {
 			brine.CapLowstate,
 			brine.CapEvents,
 			brine.CapJobLookup,
+			brine.CapStreamingReturns,
 		),
 	}, nil
 }
