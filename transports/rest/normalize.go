@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ruffel/brine"
@@ -59,10 +60,22 @@ func normalizeLocal(result *brine.Result, raw json.RawMessage) error {
 
 	result.Expected = make([]string, 0, len(minions))
 	result.ByMinion = make(map[string]brine.MinionResult, len(minions))
+	jids := make(map[string]struct{})
 
 	for minion, body := range minions {
+		ret := normalizeMinion(result.Request, minion, body)
 		result.Expected = append(result.Expected, minion)
-		result.ByMinion[minion] = normalizeMinion(result.Request, minion, body)
+		result.ByMinion[minion] = ret
+		if ret.JID != "" {
+			jids[ret.JID] = struct{}{}
+		}
+	}
+
+	slices.Sort(result.Expected)
+	if len(jids) == 1 {
+		for jid := range jids {
+			result.JID = jid
+		}
 	}
 
 	return nil
@@ -75,7 +88,7 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 			Minion:  minion,
 			JID:     full.JID,
 			RetCode: full.RetCode,
-			Return:  full.Return,
+			Return:  append([]byte(nil), full.Return...),
 			Raw:     append([]byte(nil), raw...),
 		}
 

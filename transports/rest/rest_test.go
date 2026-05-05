@@ -74,6 +74,10 @@ func TestRunListTargetFullReturnFailure(t *testing.T) {
 		t.Fatal("result should not be OK")
 	}
 
+	if result.JID != "jid" {
+		t.Fatalf("result JID = %q, want jid", result.JID)
+	}
+
 	failure := result.ByMinion["minion-1"].Failure
 	if failure == nil || failure.Kind != brine.FailureRetCode {
 		t.Fatalf("unexpected failure: %#v", failure)

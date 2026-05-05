@@ -13,12 +13,13 @@ func TestNormalizeCapturedRESTFixtures(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		fixture     string
-		req         brine.Request
-		wantOK      bool
-		wantMinions int
-		wantFailed  []string
+		name         string
+		fixture      string
+		req          brine.Request
+		wantOK       bool
+		wantReturned []string
+		wantMinions  int
+		wantFailed   []string
 	}{
 		{
 			name:        "test ping",
@@ -26,6 +27,14 @@ func TestNormalizeCapturedRESTFixtures(t *testing.T) {
 			req:         brine.Local("test.ping", brine.Glob("*")),
 			wantOK:      true,
 			wantMinions: 3,
+		},
+		{
+			name:         "test ping list target",
+			fixture:      "test_ping_list.json",
+			req:          brine.Local("test.ping", brine.List("minion-1", "minion-2")),
+			wantOK:       true,
+			wantReturned: []string{"minion-1", "minion-2"},
+			wantMinions:  2,
 		},
 		{
 			name:        "state success",
@@ -41,6 +50,13 @@ func TestNormalizeCapturedRESTFixtures(t *testing.T) {
 			wantOK:      false,
 			wantMinions: 3,
 			wantFailed:  []string{"minion-1", "minion-2", "minion-3"},
+		},
+		{
+			name:        "state pillar data",
+			fixture:     "state_pillar_echo.json",
+			req:         brine.Local("state.sls", brine.Glob("*"), brine.Args("brine.pillar_echo")),
+			wantOK:      true,
+			wantMinions: 3,
 		},
 		{
 			name:        "state partial failure",
@@ -66,8 +82,13 @@ func TestNormalizeCapturedRESTFixtures(t *testing.T) {
 				t.Fatalf("OK() = %v, want %v; result = %#v", result.OK(), tt.wantOK, result)
 			}
 
-			if got := len(result.Returned()); got != tt.wantMinions {
+			returned := result.Returned()
+			if got := len(returned); got != tt.wantMinions {
 				t.Fatalf("returned minions = %d, want %d", got, tt.wantMinions)
+			}
+
+			if len(tt.wantReturned) > 0 {
+				assertStrings(t, returned, tt.wantReturned)
 			}
 
 			assertFailedMinions(t, result, tt.wantFailed)
@@ -97,6 +118,28 @@ func TestNormalizeCapturedRunnerScalarFixture(t *testing.T) {
 	}
 }
 
+func TestNormalizeCapturedRunnerMapFixture(t *testing.T) {
+	t.Parallel()
+
+	result, err := normalize(brine.Runner("jobs.active"), readRESTFixture(t, "runner_jobs_active.json"))
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+
+	if !result.OK() {
+		t.Fatalf("result should be OK: %#v", result)
+	}
+
+	var jobs map[string]any
+	if err := result.DecodeScalar(&jobs); err != nil {
+		t.Fatalf("decode scalar: %v", err)
+	}
+
+	if len(jobs) != 0 {
+		t.Fatalf("expected no active jobs, got %#v", jobs)
+	}
+}
+
 func readRESTFixture(t *testing.T, name string) []byte {
 	t.Helper()
 
@@ -112,6 +155,20 @@ func readRESTFixture(t *testing.T, name string) []byte {
 	}
 
 	return body
+}
+
+func assertStrings(t *testing.T, got []string, want []string) {
+	t.Helper()
+
+	if len(got) != len(want) {
+		t.Fatalf("values = %#v, want %#v", got, want)
+	}
+
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("values = %#v, want %#v", got, want)
+		}
+	}
 }
 
 func assertFailedMinions(t *testing.T, result *brine.Result, want []string) {
