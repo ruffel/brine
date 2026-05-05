@@ -77,6 +77,10 @@ func WithRetry(config RetryConfig) Middleware {
 				}
 			}
 
+			if !merged.OK() {
+				return merged, NewExecutionError(merged, lastErr)
+			}
+
 			return merged, nil
 		})
 	}
