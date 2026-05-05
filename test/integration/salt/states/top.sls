@@ -1,0 +1,3 @@
+base:
+  '*':
+    - brine.unchanged

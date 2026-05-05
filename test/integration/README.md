@@ -1,0 +1,97 @@
+# Brine Salt integration harness
+
+This directory contains an opt-in Salt `v3006` test topology for capturing real
+REST fixtures and, later, running integration tests.
+
+The harness is intentionally separate from normal unit tests. `go test ./...`
+should not require Docker or Salt.
+
+## Topology
+
+- `salt-master`
+  - runs `salt-master` and `salt-api`
+  - exposes rest_cherrypy on `127.0.0.1:8000` by default
+  - uses test-only `auto_accept: True`
+  - serves states from `salt/states`
+  - serves pillar from `salt/pillar`
+- `minion-1`, `minion-2`, `minion-3`
+  - stable minion IDs
+  - connect to `salt-master`
+
+The image is built from `image/Dockerfile` with Salt `3006.9` by default.
+Override with `BRINE_SALT_VERSION` if a different Salt `v3006` patch level is required. The older `SALT_VERSION` variable is also honored as a fallback.
+
+## Usage
+
+Start the environment:
+
+```sh
+docker compose -f test/integration/compose.yaml up -d --build
+```
+
+Start with a specific Salt patch version:
+
+```sh
+BRINE_SALT_VERSION=3006.9 docker compose -f test/integration/compose.yaml up -d --build
+```
+
+If your environment uses the legacy standalone binary, set:
+
+```sh
+export BRINE_COMPOSE=docker-compose
+```
+
+Wait for all minions to respond:
+
+```sh
+test/integration/scripts/wait-ready.sh
+```
+
+Capture sanitized REST fixtures:
+
+```sh
+test/integration/scripts/capture-rest-fixtures.sh
+```
+
+Stop and remove containers/volumes:
+
+```sh
+docker compose -f test/integration/compose.yaml down -v
+```
+
+## REST defaults
+
+The fixture script defaults to:
+
+```sh
+BRINE_SALT_URL=http://127.0.0.1:8000
+BRINE_SALT_USERNAME=saltapi
+BRINE_SALT_PASSWORD=saltapi
+BRINE_SALT_EAUTH=pam
+```
+
+These credentials and `auto_accept: True` are for local test use only.
+
+## Captured matrix
+
+`capture-rest-fixtures.sh` captures:
+
+- login
+- `test.ping` against glob target
+- `test.ping` against list target
+- `state.sls brine.success`
+- `state.sls brine.fail`
+- `state.sls brine.conditional_fail`
+- `state.sls brine.pillar_echo` with per-run pillar
+- `runner.manage.alived`
+- `runner.jobs.active`
+
+Fixtures are sanitized in place by `sanitize-fixtures.sh`.
+
+## Notes
+
+- Event stream capture is intentionally not part of v0. Add it after REST sync
+  fixture capture is stable.
+- Python transport fixtures should use this same topology. Prefer a separate
+  compose service for a future long-lived Python helper rather than requiring the
+  Go test runner to include Salt's Python runtime.

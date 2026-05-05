@@ -1,0 +1,64 @@
+services:
+  salt-master:
+    build:
+      context: ./image
+      args:
+        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+    hostname: salt-master
+    container_name: brine-salt-master
+    command: >
+      bash -lc "salt-master -l info & exec salt-api -l info"
+    ports:
+      - "127.0.0.1:${BRINE_SALT_API_PORT:-8000}:8000"
+    volumes:
+      - ./salt/master.d:/etc/salt/master.d:ro
+      - ./salt/states:/srv/salt:ro
+      - ./salt/pillar:/srv/pillar:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pgrep -f salt-master >/dev/null && pgrep -f salt-api >/dev/null",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  minion-1:
+    build:
+      context: ./image
+      args:
+        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+    hostname: minion-1
+    command: salt-minion --id=minion-1 -l info
+    depends_on:
+      salt-master:
+        condition: service_healthy
+    volumes:
+      - ./salt/minion.d:/etc/salt/minion.d:ro
+
+  minion-2:
+    build:
+      context: ./image
+      args:
+        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+    hostname: minion-2
+    command: salt-minion --id=minion-2 -l info
+    depends_on:
+      salt-master:
+        condition: service_healthy
+    volumes:
+      - ./salt/minion.d:/etc/salt/minion.d:ro
+
+  minion-3:
+    build:
+      context: ./image
+      args:
+        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+    hostname: minion-3
+    command: salt-minion --id=minion-3 -l info
+    depends_on:
+      salt-master:
+        condition: service_healthy
+    volumes:
+      - ./salt/minion.d:/etc/salt/minion.d:ro
