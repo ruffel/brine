@@ -1,0 +1,30 @@
+//go:build integration
+
+package rest
+
+import (
+	"testing"
+
+	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/brinetest"
+	"github.com/ruffel/brine/internal/integration"
+)
+
+func TestIntegrationRESTContracts(t *testing.T) {
+	env := integration.Salt(t)
+	client := newIntegrationClient(t, env)
+	minions := expectedMinionIDs(env.ExpectedMinions)
+
+	brinetest.Verify(t, brinetest.Harness{
+		Name:    "rest",
+		Client:  client,
+		Target:  brine.List(minions...),
+		Minions: minions,
+		States: brinetest.StateNames{
+			Success:        "brine.success",
+			Failure:        "brine.fail",
+			PartialFailure: "brine.conditional_fail",
+		},
+		PartialFailedMinions: []string{"minion-2"},
+	})
+}

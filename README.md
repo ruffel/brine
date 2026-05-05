@@ -57,7 +57,7 @@ func main() {
 }
 ```
 
-For hermetic unit tests, use `transports/mock` instead of a real Salt master.
+For hermetic unit tests, use `transports/mock` instead of a real Salt master. Transport implementations should also run the `brinetest` contract suite against a deterministic Salt environment to verify normalized API parity.
 
 ## Async jobs and events
 
