@@ -14,7 +14,7 @@ from pathlib import Path
 
 REDACTED = '<redacted>'
 VOLATILE_KEYS = {
-    'token', 'expire', 'start_time', '_stamp', 'tgt_uuid', 'jid', 'id',
+    'token', 'expire', 'start', 'start_time', 'duration', '_stamp', 'tgt_uuid', 'jid', 'id',
     'fqdn_ip4', 'ipv4', 'ipv6', 'master', 'localhost'
 }
 IP_RE = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')

@@ -1,0 +1,16 @@
+{
+  "return": [
+    {
+      "eauth": "pam",
+      "expire": "<redacted>",
+      "perms": [
+        ".*",
+        "@runner",
+        "@wheel"
+      ],
+      "start": "<redacted>",
+      "token": "<redacted>",
+      "user": "saltapi"
+    }
+  ]
+}

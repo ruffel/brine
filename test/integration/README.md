@@ -26,16 +26,16 @@ Override with `BRINE_SALT_VERSION` if a different Salt `v3006` patch level is re
 Start the environment:
 
 ```sh
-docker compose -f test/integration/compose.yaml up -d --build
+test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build
 ```
 
 Start with a specific Salt patch version:
 
 ```sh
-BRINE_SALT_VERSION=3006.9 docker compose -f test/integration/compose.yaml up -d --build
+BRINE_SALT_VERSION=3006.9 test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build
 ```
 
-If your environment uses the legacy standalone binary, set:
+The `compose.sh` wrapper auto-detects Docker Compose v2 (`docker compose`) or the legacy standalone `docker-compose`. You can override detection with:
 
 ```sh
 export BRINE_COMPOSE=docker-compose
@@ -56,7 +56,7 @@ test/integration/scripts/capture-rest-fixtures.sh
 Stop and remove containers/volumes:
 
 ```sh
-docker compose -f test/integration/compose.yaml down -v
+test/integration/scripts/compose.sh -f test/integration/compose.yaml down -v
 ```
 
 ## REST defaults
@@ -68,15 +68,26 @@ BRINE_SALT_URL=http://127.0.0.1:8000
 BRINE_SALT_USERNAME=saltapi
 BRINE_SALT_PASSWORD=saltapi
 BRINE_SALT_EAUTH=pam
+BRINE_SALT_AUTH_MODE=pam
 ```
 
 These credentials and `auto_accept: True` are for local test use only.
+
+To capture against an endpoint that accepts unauthenticated localhost requests,
+set:
+
+```sh
+BRINE_SALT_AUTH_MODE=noauth
+```
+
+In `noauth` mode the capture script skips `/login` and does not send
+`X-Auth-Token`.
 
 ## Captured matrix
 
 `capture-rest-fixtures.sh` captures:
 
-- login
+- login, except when `BRINE_SALT_AUTH_MODE=noauth`
 - `test.ping` against glob target
 - `test.ping` against list target
 - `state.sls brine.success`

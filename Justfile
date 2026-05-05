@@ -1,7 +1,7 @@
 # Justfile for brine
 
 MODULES := ""
-COMPOSE := env_var_or_default("BRINE_COMPOSE", "docker compose")
+COMPOSE := "test/integration/scripts/compose.sh"
 
 # Default recipe
 default: test lint

@@ -12,6 +12,7 @@ const (
 	defaultSaltUsername = "saltapi"
 	defaultSaltPassword = "saltapi"
 	defaultSaltEAuth    = "pam"
+	defaultSaltAuthMode = "pam"
 	defaultSaltVersion  = "3006.9"
 )
 
@@ -21,6 +22,7 @@ type SaltEnv struct {
 	Username string
 	Password string
 	EAuth    string
+	AuthMode string
 	Version  string
 }
 
@@ -38,6 +40,7 @@ func Salt(t testing.TB) SaltEnv {
 		Username: env("BRINE_SALT_USERNAME", defaultSaltUsername),
 		Password: env("BRINE_SALT_PASSWORD", defaultSaltPassword),
 		EAuth:    env("BRINE_SALT_EAUTH", defaultSaltEAuth),
+		AuthMode: env("BRINE_SALT_AUTH_MODE", defaultSaltAuthMode),
 		Version:  env("BRINE_SALT_VERSION", env("SALT_VERSION", defaultSaltVersion)),
 	}
 }

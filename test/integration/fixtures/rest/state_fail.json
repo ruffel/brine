@@ -1,0 +1,45 @@
+{
+  "return": [
+    {
+      "minion-1": {
+        "test_|-brine_failure_|-brine intentional failure_|-fail_without_changes": {
+          "__id__": "brine_failure",
+          "__run_num__": 0,
+          "__sls__": "brine.fail",
+          "changes": {},
+          "comment": "Failure!",
+          "duration": "<redacted>",
+          "name": "brine intentional failure",
+          "result": false,
+          "start_time": "<redacted>"
+        }
+      },
+      "minion-2": {
+        "test_|-brine_failure_|-brine intentional failure_|-fail_without_changes": {
+          "__id__": "brine_failure",
+          "__run_num__": 0,
+          "__sls__": "brine.fail",
+          "changes": {},
+          "comment": "Failure!",
+          "duration": "<redacted>",
+          "name": "brine intentional failure",
+          "result": false,
+          "start_time": "<redacted>"
+        }
+      },
+      "minion-3": {
+        "test_|-brine_failure_|-brine intentional failure_|-fail_without_changes": {
+          "__id__": "brine_failure",
+          "__run_num__": 0,
+          "__sls__": "brine.fail",
+          "changes": {},
+          "comment": "Failure!",
+          "duration": "<redacted>",
+          "name": "brine intentional failure",
+          "result": false,
+          "start_time": "<redacted>"
+        }
+      }
+    }
+  ]
+}

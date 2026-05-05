@@ -30,7 +30,7 @@ services:
       args:
         SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
     hostname: minion-1
-    command: salt-minion --id=minion-1 -l info
+    command: salt-minion -l info
     depends_on:
       salt-master:
         condition: service_healthy
@@ -43,7 +43,7 @@ services:
       args:
         SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
     hostname: minion-2
-    command: salt-minion --id=minion-2 -l info
+    command: salt-minion -l info
     depends_on:
       salt-master:
         condition: service_healthy
@@ -56,7 +56,7 @@ services:
       args:
         SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
     hostname: minion-3
-    command: salt-minion --id=minion-3 -l info
+    command: salt-minion -l info
     depends_on:
       salt-master:
         condition: service_healthy

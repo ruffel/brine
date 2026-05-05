@@ -21,7 +21,22 @@ RUN apt-get update \
         sudo \
         tini \
     && python -m pip install --upgrade pip setuptools wheel \
-    && python -m pip install "salt==${SALT_VERSION}" cherrypy pyOpenSSL python-gnupg \
+    && python -m pip install \
+        "salt==${SALT_VERSION}" \
+        cherrypy \
+        cryptography \
+        distro \
+        jinja2 \
+        looseversion \
+        msgpack \
+        psutil \
+        pyOpenSSL \
+        pyzmq \
+        PyYAML \
+        python-gnupg \
+        requests \
+        setproctitle \
+        tornado \
     && useradd --create-home --shell /bin/bash saltapi \
     && echo 'saltapi:saltapi' | chpasswd \
     && mkdir -p /etc/salt/master.d /etc/salt/minion.d /srv/salt /srv/pillar /var/cache/salt /var/log/salt /var/run/salt \

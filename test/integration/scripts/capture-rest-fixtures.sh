@@ -7,20 +7,49 @@ SALT_URL="${BRINE_SALT_URL:-http://127.0.0.1:${BRINE_SALT_API_PORT:-8000}}"
 USERNAME="${BRINE_SALT_USERNAME:-saltapi}"
 PASSWORD="${BRINE_SALT_PASSWORD:-saltapi}"
 EAUTH="${BRINE_SALT_EAUTH:-pam}"
+AUTH_MODE="${BRINE_SALT_AUTH_MODE:-pam}"
+TOKEN=""
 
 mkdir -p "${FIXTURE_DIR}"
 
-login_payload="$(python3 - <<PY
+curl_json() {
+  name="$1"
+  url="$2"
+  payload="$3"
+  output="$4"
+  shift 4
+
+  tmp="${output}.tmp"
+  status="$(curl -sS -o "${tmp}" -w '%{http_code}' "$@" -d "${payload}" "${url}" || true)"
+  if [[ "${status}" -lt 200 || "${status}" -ge 300 ]]; then
+    printf 'REST fixture capture failed for %s: HTTP %s from %s\n' "${name}" "${status}" "${url}" >&2
+    printf 'Response body:\n' >&2
+    cat "${tmp}" >&2 || true
+    printf '\n' >&2
+    rm -f "${tmp}"
+    exit 1
+  fi
+
+  mv "${tmp}" "${output}"
+}
+
+if [[ "${AUTH_MODE}" != "noauth" ]]; then
+  login_payload="$(USERNAME="${USERNAME}" PASSWORD="${PASSWORD}" EAUTH="${EAUTH}" python3 - <<'PY'
 import json
-print(json.dumps({'username': '${USERNAME}', 'password': '${PASSWORD}', 'eauth': '${EAUTH}'}))
+import os
+print(json.dumps({
+    'username': os.environ['USERNAME'],
+    'password': os.environ['PASSWORD'],
+    'eauth': os.environ['EAUTH'],
+}))
 PY
 )"
 
-login_response="${FIXTURE_DIR}/login.json"
-curl -fsS -H 'Accept: application/json' -H 'Content-Type: application/json' \
-  -d "${login_payload}" "${SALT_URL}/login" > "${login_response}"
+  login_response="${FIXTURE_DIR}/login.json"
+  curl_json login "${SALT_URL}/login" "${login_payload}" "${login_response}" \
+    -H 'Accept: application/json' -H 'Content-Type: application/json'
 
-TOKEN="$(python3 - "${login_response}" <<'PY'
+  TOKEN="$(python3 - "${login_response}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -28,12 +57,16 @@ body = json.loads(Path(sys.argv[1]).read_text())
 print(body['return'][0]['token'])
 PY
 )"
+fi
 
 post_lowstate() {
   name="$1"
   payload="$2"
-  curl -fsS -H 'Accept: application/json' -H 'Content-Type: application/json' -H "X-Auth-Token: ${TOKEN}" \
-    -d "${payload}" "${SALT_URL}/" > "${FIXTURE_DIR}/${name}.json"
+  headers=(-H 'Accept: application/json' -H 'Content-Type: application/json')
+  if [[ -n "${TOKEN}" ]]; then
+    headers+=(-H "X-Auth-Token: ${TOKEN}")
+  fi
+  curl_json "${name}" "${SALT_URL}/" "${payload}" "${FIXTURE_DIR}/${name}.json" "${headers[@]}"
 }
 
 post_lowstate test_ping '[{"client":"local","tgt":"*","fun":"test.ping"}]'
