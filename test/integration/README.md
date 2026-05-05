@@ -1,7 +1,7 @@
 # Brine Salt integration harness
 
 This directory contains an opt-in Salt `v3006` test topology for capturing real
-REST fixtures and, later, running integration tests.
+REST fixtures and running REST integration/contract tests.
 
 The harness is intentionally separate from normal unit tests. `go test ./...`
 should not require Docker or Salt.
@@ -127,8 +127,9 @@ Fixtures are sanitized in place by `sanitize-fixtures.sh`.
 - REST sync integration tests expect deterministic minion IDs beginning at
   `minion-1` through `minion-$BRINE_EXPECTED_MINIONS` and the test states in
   this directory to be available on the target Salt master.
-- Event stream capture is intentionally not part of v0. Add it after REST sync
-  fixture capture is stable.
-- Python transport fixtures should use this same topology. Prefer a separate
-  compose service for a future long-lived Python helper rather than requiring the
-  Go test runner to include Salt's Python runtime.
+- Event stream fixtures are intentionally not captured yet; event behavior is
+  covered by opt-in REST integration and `brinetest` contract tests.
+- Python transport fixtures should use this same topology if Python support is
+  implemented. Prefer a separate compose service for a future long-lived Python
+  helper rather than requiring the Go test runner to include Salt's Python
+  runtime.

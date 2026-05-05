@@ -21,10 +21,11 @@
 // by expiry and invalidated on an HTTP 401 response, then retried once before an
 // authentication error is returned.
 //
-// Info returns transport metadata and probes Salt's test.get_opts runner once to
-// detect the Salt version when the endpoint and auth policy allow it. Detection
-// failure is ignored and leaves version fields empty because rest_cherrypy does
-// not expose a stable API-version endpoint.
+// Info returns transport metadata and may perform a network request. It probes
+// Salt's test.get_opts runner at most once to detect the Salt version when the
+// endpoint and auth policy allow it. Detection failure is cached, ignored, and
+// leaves version fields empty because rest_cherrypy does not expose a stable
+// API-version endpoint.
 //
 // Subscribe opens rest_cherrypy's global /events server-sent event stream.
 // Filtering by JID, tag, and minion is best-effort and performed client-side

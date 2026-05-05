@@ -553,7 +553,7 @@ Completed:
 - [x] Implement REST local async, job lookup, and event stream groundwork.
 - [x] Keep `just test` and `just lint` green.
 
-Next:
+Recently completed:
 
 - [x] Implement `brinetest` contract/parity suite.
 - [x] Run `brinetest` against REST integration.
@@ -564,7 +564,12 @@ Next:
 - [x] Start Phase 7 request middleware and orchestration integration examples.
 - [x] Start Phase 8 migration of existing callers.
 
-Deferred or still open:
+Next:
+
+- [ ] Run `just contract-rest` against the live compose harness before release or handoff.
+- [ ] Begin downstream caller migration using `MIGRATION.md`, or select one of the intentionally deferred REST capabilities below if a concrete workflow requires it.
+
+Intentionally deferred until needed:
 
 - [x] Request metadata semantics need more concrete caller-facing examples.
 - [x] Target type-switch exhaustiveness guard for transports.

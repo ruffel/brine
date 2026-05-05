@@ -50,21 +50,12 @@ func verifyLowstateLocalPing(t *testing.T, h Harness) {
 func lowstateTarget(t *testing.T, target brine.Target) (any, string) {
 	t.Helper()
 
-	switch value := target.(type) {
-	case brine.GlobTarget:
-		return string(value), ""
-	case brine.CompoundTarget:
-		return string(value), "compound"
-	case brine.GrainTarget:
-		return string(value), "grain"
-	case brine.PillarTarget:
-		return string(value), "pillar"
-	case brine.NodeGroupTarget:
-		return string(value), "nodegroup"
-	case brine.ListTarget:
-		return []string(value), "list"
-	default:
-		t.Fatalf("brinetest: unsupported target type %T", target)
-		return nil, ""
+	spec, err := brine.DescribeTarget(target)
+	require.NoError(t, err)
+
+	if spec.Type == brine.TargetGlob {
+		return spec.Expression, ""
 	}
+
+	return spec.Expression, string(spec.Type)
 }

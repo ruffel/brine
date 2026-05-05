@@ -370,7 +370,9 @@ func TestInfoDetectsSaltVersion(t *testing.T) {
 func TestInfoIgnoresSaltVersionProbeFailure(t *testing.T) {
 	t.Parallel()
 
+	requestCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requestCount++
 		http.Error(writer, "no", http.StatusInternalServerError)
 	}))
 	defer server.Close()
@@ -383,6 +385,11 @@ func TestInfoIgnoresSaltVersionProbeFailure(t *testing.T) {
 	assert.Equal(t, "rest", info.Name)
 	assert.Empty(t, info.SaltVersion)
 	assert.ElementsMatch(t, transport.Capabilities().List(), info.Capabilities.List())
+
+	cached, err := transport.Info(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, info, cached)
+	assert.Equal(t, 1, requestCount)
 }
 
 func TestSaltVersionFromGetOpts(t *testing.T) {

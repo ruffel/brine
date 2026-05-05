@@ -44,9 +44,8 @@ type Transport struct {
 	jobPollInterval time.Duration
 	caps            brine.Capabilities
 
-	infoMu     sync.Mutex
+	infoOnce   sync.Once
 	cachedInfo brine.TransportInfo
-	infoCached bool
 }
 
 // New constructs a rest_cherrypy transport.
@@ -93,29 +92,20 @@ func (t *Transport) Capabilities() brine.Capabilities {
 
 // Info implements brine.Transport.
 func (t *Transport) Info(ctx context.Context) (brine.TransportInfo, error) {
-	info := brine.TransportInfo{
-		Name:         transportName,
-		Capabilities: t.caps,
-	}
+	t.infoOnce.Do(func() {
+		info := brine.TransportInfo{
+			Name:         transportName,
+			Capabilities: t.caps,
+		}
 
-	t.infoMu.Lock()
-	if t.infoCached {
-		cached := t.cachedInfo
-		t.infoMu.Unlock()
+		if saltVersion, ok := t.detectSaltVersion(ctx); ok {
+			info.SaltVersion = saltVersion
+		}
 
-		return cached, nil
-	}
-	t.infoMu.Unlock()
-
-	if saltVersion, ok := t.detectSaltVersion(ctx); ok {
-		info.SaltVersion = saltVersion
-		t.infoMu.Lock()
 		t.cachedInfo = info
-		t.infoCached = true
-		t.infoMu.Unlock()
-	}
+	})
 
-	return info, nil
+	return t.cachedInfo, nil
 }
 
 // Run implements brine.Handler.
