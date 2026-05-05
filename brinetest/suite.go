@@ -9,12 +9,13 @@ import (
 )
 
 const (
-	CategorySync   = "sync"
-	CategoryState  = "state"
-	CategoryAsync  = "async"
-	CategoryEvents = "events"
+	CategorySync        = "sync"
+	CategoryState       = "state"
+	CategoryAsync       = "async"
+	CategoryEvents      = "events"
+	CategoryUnsupported = "unsupported"
 
-	initialContractCapacity = 16
+	initialContractCapacity = 20
 )
 
 // StateNames names deterministic test states available to contract tests.
@@ -36,11 +37,12 @@ type Harness struct {
 
 // TestCase defines one transport-neutral behavior contract.
 type TestCase struct {
-	Category     string
-	Name         string
-	Description  string
-	Capabilities []brine.Capability
-	Run          func(t *testing.T, h Harness)
+	Category           string
+	Name               string
+	Description        string
+	Capabilities       []brine.Capability
+	AbsentCapabilities []brine.Capability
+	Run                func(t *testing.T, h Harness)
 }
 
 // ID returns the stable contract identifier.
@@ -59,7 +61,7 @@ func Verify(t *testing.T, h Harness) {
 				t.Log(contract.Description)
 			}
 
-			requireCapabilities(t, h, contract.Capabilities...)
+			requireContractPrereqs(t, h, contract)
 			contract.Run(t, h)
 		})
 	}
@@ -72,6 +74,7 @@ func AllContracts() []TestCase {
 	contracts = append(contracts, stateContracts()...)
 	contracts = append(contracts, asyncContracts()...)
 	contracts = append(contracts, eventContracts()...)
+	contracts = append(contracts, unsupportedContracts()...)
 	validateContracts(contracts)
 
 	return contracts
@@ -117,12 +120,12 @@ func validateContracts(contracts []TestCase) {
 	}
 }
 
-func requireCapabilities(t *testing.T, h Harness, capabilities ...brine.Capability) {
+func requireContractPrereqs(t *testing.T, h Harness, contract TestCase) {
 	t.Helper()
 
 	caps := h.Client.Capabilities()
 	missing := make([]brine.Capability, 0)
-	for _, capability := range capabilities {
+	for _, capability := range contract.Capabilities {
 		if !caps.Supports(capability) {
 			missing = append(missing, capability)
 		}
@@ -130,5 +133,16 @@ func requireCapabilities(t *testing.T, h Harness, capabilities ...brine.Capabili
 
 	if len(missing) > 0 {
 		t.Skipf("transport %q missing capabilities: %v", h.Name, missing)
+	}
+
+	present := make([]brine.Capability, 0)
+	for _, capability := range contract.AbsentCapabilities {
+		if caps.Supports(capability) {
+			present = append(present, capability)
+		}
+	}
+
+	if len(present) > 0 {
+		t.Skipf("transport %q supports capabilities this contract expects absent: %v", h.Name, present)
 	}
 }
