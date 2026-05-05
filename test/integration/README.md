@@ -69,6 +69,7 @@ BRINE_SALT_USERNAME=saltapi
 BRINE_SALT_PASSWORD=saltapi
 BRINE_SALT_EAUTH=pam
 BRINE_SALT_AUTH_MODE=pam
+BRINE_EXPECTED_MINIONS=3
 ```
 
 These credentials and `auto_accept: True` are for local test use only.
@@ -101,6 +102,9 @@ Fixtures are sanitized in place by `sanitize-fixtures.sh`.
 
 ## Notes
 
+- REST sync integration tests expect deterministic minion IDs beginning at
+  `minion-1` through `minion-$BRINE_EXPECTED_MINIONS` and the test states in
+  this directory to be available on the target Salt master.
 - Event stream capture is intentionally not part of v0. Add it after REST sync
   fixture capture is stable.
 - Python transport fixtures should use this same topology. Prefer a separate
