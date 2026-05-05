@@ -7,7 +7,12 @@
 // and lookup semantics are covered by fixtures.
 //
 // Job.Wait collects final local async results with runner.jobs.lookup_jid. The
-// wait result is cached so repeated Wait calls return the same result and error.
+// lookup polling interval is configured with Config.JobPollInterval and defaults
+// to one second. Terminal wait results are cached so repeated successful or
+// execution-failed Wait calls return the same result and error. Non-terminal
+// waits, such as context cancellation while expected minions are still missing,
+// return the partial result without poisoning future Wait calls.
+//
 // If Salt reports execution failures, Wait returns a brine.ExecutionError that
 // carries the normalized partial or complete result.
 //

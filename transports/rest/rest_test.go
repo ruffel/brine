@@ -327,6 +327,46 @@ func TestStartLocalAsyncWaitReturnsPartialOnMissingMinionCancellation(t *testing
 	assert.Equal(t, 2, requestCount)
 }
 
+func TestStartLocalAsyncWaitCancellationIsNotCached(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		switch requestCount {
+		case 1:
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":["minion-1","minion-2"]}]}`))
+		case 2:
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		default:
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, JobPollInterval: 500 * time.Millisecond})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	partial, err := job.Wait(ctx)
+	require.Error(t, err)
+	require.NotNil(t, partial)
+	assert.Equal(t, []string{"minion-2"}, partial.Missing)
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+	assert.GreaterOrEqual(t, requestCount, 3)
+}
+
 func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 	t.Parallel()
 

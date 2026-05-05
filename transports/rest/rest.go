@@ -22,9 +22,10 @@ const (
 
 // Config configures a rest_cherrypy transport.
 type Config struct {
-	BaseURL    string
-	HTTPClient *http.Client
-	Auth       Authenticator
+	BaseURL         string
+	HTTPClient      *http.Client
+	Auth            Authenticator
+	JobPollInterval time.Duration
 }
 
 // Authenticator provides Salt API authentication tokens.
@@ -36,10 +37,11 @@ type Authenticator interface {
 type Transport struct {
 	brine.UnsupportedTransport
 
-	baseURL string
-	client  *http.Client
-	auth    Authenticator
-	caps    brine.Capabilities
+	baseURL         string
+	client          *http.Client
+	auth            Authenticator
+	jobPollInterval time.Duration
+	caps            brine.Capabilities
 }
 
 // New constructs a rest_cherrypy transport.
@@ -54,10 +56,16 @@ func New(config Config) (*Transport, error) {
 		client = http.DefaultClient
 	}
 
+	jobPollInterval := config.JobPollInterval
+	if jobPollInterval <= 0 {
+		jobPollInterval = defaultJobLookupPollInterval
+	}
+
 	return &Transport{
-		baseURL: baseURL,
-		client:  client,
-		auth:    config.Auth,
+		baseURL:         baseURL,
+		client:          client,
+		auth:            config.Auth,
+		jobPollInterval: jobPollInterval,
 		caps: brine.NewCapabilities(
 			brine.CapSynchronousRun,
 			brine.CapLocalRun,

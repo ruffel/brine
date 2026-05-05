@@ -10,7 +10,7 @@ import (
 	"github.com/ruffel/brine"
 )
 
-const jobLookupPollInterval = time.Second
+const defaultJobLookupPollInterval = time.Second
 
 type asyncStartEnvelope struct {
 	Return []asyncStartReturn `json:"return"`
@@ -73,7 +73,10 @@ func (j *localJob) Wait(ctx context.Context) (*brine.Result, error) {
 	}
 	j.mu.Unlock()
 
-	result, err := j.wait(ctx)
+	result, err, terminal := j.wait(ctx)
+	if !terminal {
+		return result, err
+	}
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -95,19 +98,21 @@ func (j *localJob) Events(ctx context.Context) (brine.EventStream, error) {
 	return j.transport.Subscribe(ctx, brine.EventFilter{JID: j.jid})
 }
 
-func (j *localJob) wait(ctx context.Context) (*brine.Result, error) {
+func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 	for {
 		result, err := j.transport.lookupLocalJob(ctx, j.req, j.jid, j.expected)
 		if err != nil {
-			return result, err
+			return result, err, false
 		}
 
 		if jobLookupComplete(result, j.expected) {
-			return resultWithExecutionError(result)
+			result, err := resultWithExecutionError(result)
+
+			return result, err, true
 		}
 
-		if err := waitJobLookupPoll(ctx); err != nil {
-			return result, brine.NewExecutionError(result, err)
+		if err := waitJobLookupPoll(ctx, j.transport.jobPollInterval); err != nil {
+			return result, brine.NewExecutionError(result, err), false
 		}
 	}
 }
@@ -213,8 +218,12 @@ func resultWithExecutionError(result *brine.Result) (*brine.Result, error) {
 	return result, brine.NewExecutionError(result, nil)
 }
 
-func waitJobLookupPoll(ctx context.Context) error {
-	timer := time.NewTimer(jobLookupPollInterval)
+func waitJobLookupPoll(ctx context.Context, interval time.Duration) error {
+	if interval <= 0 {
+		interval = defaultJobLookupPollInterval
+	}
+
+	timer := time.NewTimer(interval)
 	defer timer.Stop()
 
 	select {

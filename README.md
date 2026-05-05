@@ -89,7 +89,7 @@ fmt.Println(result.OK())
 For the REST transport today:
 
 - local async jobs are dispatched with Salt's `local_async` client;
-- `Job.Wait` polls `runner.jobs.lookup_jid` and caches the final result;
+- `Job.Wait` polls `runner.jobs.lookup_jid`, using `rest.Config.JobPollInterval` when set, and caches terminal results;
 - `Job.Events` is backed by the global `/events` SSE stream filtered by JID;
 - event filtering is best-effort because it depends on Salt's emitted tags/data;
 - Salt return events such as `salt/job/<jid>/ret/<minion>` are normalized to `EventMinionReturned` when possible;
