@@ -1,0 +1,60 @@
+{
+  "return": [
+    {
+      "minion-1": {
+        "test_|-brine_changed_|-brine changed_|-succeed_with_changes": {
+          "__id__": "brine_changed",
+          "__run_num__": 0,
+          "__sls__": "brine.changed",
+          "changes": {
+            "testing": {
+              "new": "Something pretended to change",
+              "old": "Unchanged"
+            }
+          },
+          "comment": "Success!",
+          "duration": "<redacted>",
+          "name": "brine changed",
+          "result": true,
+          "start_time": "<redacted>"
+        }
+      },
+      "minion-2": {
+        "test_|-brine_changed_|-brine changed_|-succeed_with_changes": {
+          "__id__": "brine_changed",
+          "__run_num__": 0,
+          "__sls__": "brine.changed",
+          "changes": {
+            "testing": {
+              "new": "Something pretended to change",
+              "old": "Unchanged"
+            }
+          },
+          "comment": "Success!",
+          "duration": "<redacted>",
+          "name": "brine changed",
+          "result": true,
+          "start_time": "<redacted>"
+        }
+      },
+      "minion-3": {
+        "test_|-brine_changed_|-brine changed_|-succeed_with_changes": {
+          "__id__": "brine_changed",
+          "__run_num__": 0,
+          "__sls__": "brine.changed",
+          "changes": {
+            "testing": {
+              "new": "Something pretended to change",
+              "old": "Unchanged"
+            }
+          },
+          "comment": "Success!",
+          "duration": "<redacted>",
+          "name": "brine changed",
+          "result": true,
+          "start_time": "<redacted>"
+        }
+      }
+    }
+  ]
+}

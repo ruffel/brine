@@ -19,6 +19,8 @@ func TestDecodeCapturedStateFixtures(t *testing.T) {
 		fixture       string
 		wantFailed    map[string][]string
 		wantSucceeded map[string]int
+		wantChanged   int
+		wantNoOp      int
 	}{
 		{
 			name:    "success",
@@ -28,6 +30,26 @@ func TestDecodeCapturedStateFixtures(t *testing.T) {
 				"minion-2": 1,
 				"minion-3": 1,
 			},
+		},
+		{
+			name:    "changed",
+			fixture: "state_changed.json",
+			wantSucceeded: map[string]int{
+				"minion-1": 1,
+				"minion-2": 1,
+				"minion-3": 1,
+			},
+			wantChanged: 1,
+		},
+		{
+			name:    "unchanged",
+			fixture: "state_unchanged.json",
+			wantSucceeded: map[string]int{
+				"minion-1": 1,
+				"minion-2": 1,
+				"minion-3": 1,
+			},
+			wantNoOp: 1,
 		},
 		{
 			name:    "pillar echo",
@@ -79,6 +101,12 @@ func TestDecodeCapturedStateFixtures(t *testing.T) {
 				if summary.Succeeded != wantSucceeded || summary.Failed != 0 {
 					t.Fatalf("%s summary = %#v", minion, summary)
 				}
+				if tt.wantChanged != 0 && summary.Changed != tt.wantChanged {
+					t.Fatalf("%s changed = %d, want %d: %#v", minion, summary.Changed, tt.wantChanged, summary)
+				}
+				if tt.wantNoOp != 0 && summary.NoOp != tt.wantNoOp {
+					t.Fatalf("%s no-op = %d, want %d: %#v", minion, summary.NoOp, tt.wantNoOp, summary)
+				}
 			}
 
 			for minion, wantFailed := range tt.wantFailed {
@@ -89,6 +117,23 @@ func TestDecodeCapturedStateFixtures(t *testing.T) {
 				assertStrings(t, summary.FailedStates, wantFailed)
 			}
 		})
+	}
+}
+
+func TestSummaryReportsTestMode(t *testing.T) {
+	t.Parallel()
+
+	decoded, err := DecodeMinion(brine.MinionResult{
+		Minion: "minion-1",
+		Return: json.RawMessage(`{"state_|-dry_run_|-dry run_|-test":{"__id__":"dry_run","name":"dry run","result":null,"changes":{},"comment":"would change"}}`),
+	})
+	if err != nil {
+		t.Fatalf("decode test-mode return: %v", err)
+	}
+
+	summary := decoded.Summary()
+	if summary.TestMode != 1 || summary.Succeeded != 0 || summary.Failed != 0 {
+		t.Fatalf("unexpected summary: %#v", summary)
 	}
 }
 

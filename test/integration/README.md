@@ -92,6 +92,8 @@ In `noauth` mode the capture script skips `/login` and does not send
 - `test.ping` against glob target
 - `test.ping` against list target
 - `state.sls brine.success`
+- `state.sls brine.changed`
+- `state.sls brine.unchanged`
 - `state.sls brine.fail`
 - `state.sls brine.conditional_fail`
 - `state.sls brine.pillar_echo` with per-run pillar

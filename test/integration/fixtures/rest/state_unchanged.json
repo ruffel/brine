@@ -1,0 +1,45 @@
+{
+  "return": [
+    {
+      "minion-1": {
+        "test_|-brine_unchanged_|-brine unchanged_|-succeed_without_changes": {
+          "__id__": "brine_unchanged",
+          "__run_num__": 0,
+          "__sls__": "brine.unchanged",
+          "changes": {},
+          "comment": "Success!",
+          "duration": "<redacted>",
+          "name": "brine unchanged",
+          "result": true,
+          "start_time": "<redacted>"
+        }
+      },
+      "minion-2": {
+        "test_|-brine_unchanged_|-brine unchanged_|-succeed_without_changes": {
+          "__id__": "brine_unchanged",
+          "__run_num__": 0,
+          "__sls__": "brine.unchanged",
+          "changes": {},
+          "comment": "Success!",
+          "duration": "<redacted>",
+          "name": "brine unchanged",
+          "result": true,
+          "start_time": "<redacted>"
+        }
+      },
+      "minion-3": {
+        "test_|-brine_unchanged_|-brine unchanged_|-succeed_without_changes": {
+          "__id__": "brine_unchanged",
+          "__run_num__": 0,
+          "__sls__": "brine.unchanged",
+          "changes": {},
+          "comment": "Success!",
+          "duration": "<redacted>",
+          "name": "brine unchanged",
+          "result": true,
+          "start_time": "<redacted>"
+        }
+      }
+    }
+  ]
+}

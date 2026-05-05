@@ -72,9 +72,13 @@ post_lowstate() {
 post_lowstate test_ping '[{"client":"local","tgt":"*","fun":"test.ping"}]'
 post_lowstate test_ping_list '[{"client":"local","tgt":["minion-1","minion-2"],"tgt_type":"list","fun":"test.ping"}]'
 post_lowstate state_success '[{"client":"local","tgt":"*","fun":"state.sls","arg":["brine.success"]}]'
+post_lowstate state_changed '[{"client":"local","tgt":"*","fun":"state.sls","arg":["brine.changed"]}]'
+post_lowstate state_unchanged '[{"client":"local","tgt":"*","fun":"state.sls","arg":["brine.unchanged"]}]'
 post_lowstate state_fail '[{"client":"local","tgt":"*","fun":"state.sls","arg":["brine.fail"]}]'
 post_lowstate state_conditional_fail '[{"client":"local","tgt":"*","fun":"state.sls","arg":["brine.conditional_fail"]}]'
+post_lowstate state_pillar_echo_warmup '[{"client":"local","tgt":"*","fun":"state.sls","arg":["brine.pillar_echo"],"kwarg":{"pillar":{"brine":{"message":"hello from per-run pillar"}}}}]'
 post_lowstate state_pillar_echo '[{"client":"local","tgt":"*","fun":"state.sls","arg":["brine.pillar_echo"],"kwarg":{"pillar":{"brine":{"message":"hello from per-run pillar"}}}}]'
+rm -f "${FIXTURE_DIR}/state_pillar_echo_warmup.json"
 post_lowstate runner_manage_alived '[{"client":"runner","fun":"manage.alived"}]'
 post_lowstate runner_jobs_active '[{"client":"runner","fun":"jobs.active"}]'
 
