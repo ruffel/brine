@@ -34,6 +34,7 @@ func TestWithRetryUsesMalformedStateRetryPredicate(t *testing.T) {
 
 type stateRetryTransport struct {
 	brine.UnsupportedTransport
+
 	calls       int
 	retryTarget brine.Target
 }

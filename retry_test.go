@@ -70,12 +70,14 @@ func TestWithRetryReportsExecutionErrorWhenRetriesExhausted(t *testing.T) {
 
 type scriptedRetryTransport struct {
 	UnsupportedTransport
+
 	calls       int
 	retryTarget Target
 }
 
 type exhaustedRetryTransport struct {
 	UnsupportedTransport
+
 	calls int
 }
 

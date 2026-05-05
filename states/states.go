@@ -89,7 +89,7 @@ func DecodeMinion(result brine.MinionResult) (Return, error) {
 
 	rawChunks := map[string]json.RawMessage{}
 	if err := json.Unmarshal(result.Return, &rawChunks); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidStateReturn, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidStateReturn, err)
 	}
 
 	if len(rawChunks) == 0 {
@@ -100,7 +100,7 @@ func DecodeMinion(result brine.MinionResult) (Return, error) {
 	for chunkID, raw := range rawChunks {
 		state, err := decodeState(raw)
 		if err != nil {
-			return nil, fmt.Errorf("%w: state %q: %v", ErrInvalidStateReturn, chunkID, err)
+			return nil, fmt.Errorf("%w: state %q: %w", ErrInvalidStateReturn, chunkID, err)
 		}
 
 		decoded[chunkID] = state

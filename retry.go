@@ -21,68 +21,102 @@ type RetryConfig struct {
 func WithRetry(config RetryConfig) Middleware {
 	return func(next Handler) Handler {
 		return HandlerFunc(func(ctx context.Context, req Request) (*Result, error) {
-			result, err := next.Run(ctx, req)
-			if config.MaxAttempts <= 1 || config.Predicate == nil || req.Kind != KindLocal {
-				return result, err
+			state, ok := newRetryState(config, next, req)
+			if !ok {
+				return next.Run(ctx, req)
 			}
 
-			current := resultFromError(result, err)
-			if current == nil {
-				return result, err
-			}
-
-			retryMinions := retryableMinions(req, current, config.Predicate)
-			if len(retryMinions) == 0 {
-				return result, err
-			}
-
-			merged := cloneResult(current)
-			var lastErr error
-
-			for attempt := 2; attempt <= config.MaxAttempts && len(retryMinions) > 0; attempt++ {
-				delay := retryDelay(config.Backoff, attempt)
-				for _, minion := range retryMinions {
-					Emit(ctx, NewEvent(EventRetryScheduled, RetryPayload{Request: req, Minion: minion, Attempt: attempt, Delay: delay}))
-				}
-
-				if err := waitRetryDelay(ctx, delay); err != nil {
-					return merged, err
-				}
-
-				retryReq := req
-				retryReq.Target = List(retryMinions...)
-
-				for _, minion := range retryMinions {
-					Emit(ctx, NewEvent(EventRetryStarted, RetryPayload{Request: retryReq, Minion: minion, Attempt: attempt}))
-				}
-
-				retryResult, retryErr := next.Run(ctx, retryReq)
-				lastErr = retryErr
-				retryCurrent := resultFromError(retryResult, retryErr)
-				if retryCurrent == nil {
-					if retryErr != nil {
-						return merged, retryErr
-					}
-
-					break
-				}
-
-				mergeRetryResult(merged, retryCurrent)
-				retryMinions = retryableMinions(req, merged, config.Predicate)
-			}
-
-			if len(retryMinions) > 0 {
-				for _, minion := range retryMinions {
-					Emit(ctx, NewEvent(EventRetryExhausted, RetryPayload{Request: req, Minion: minion, Attempt: config.MaxAttempts, Err: lastErr}))
-				}
-			}
-
-			if !merged.OK() {
-				return merged, NewExecutionError(merged, lastErr)
-			}
-
-			return merged, nil
+			return state.run(ctx)
 		})
+	}
+}
+
+type retryState struct {
+	config RetryConfig
+	next   Handler
+	req    Request
+}
+
+func newRetryState(config RetryConfig, next Handler, req Request) (retryState, bool) {
+	ok := config.MaxAttempts > 1 && config.Predicate != nil && req.Kind == KindLocal
+
+	return retryState{config: config, next: next, req: req}, ok
+}
+
+func (s retryState) run(ctx context.Context) (*Result, error) {
+	result, err := s.next.Run(ctx, s.req)
+	current := resultFromError(result, err)
+	if current == nil {
+		return result, err
+	}
+
+	retryMinions := retryableMinions(s.req, current, s.config.Predicate)
+	if len(retryMinions) == 0 {
+		return result, err
+	}
+
+	merged := cloneResult(current)
+	lastErr := s.runAttempts(ctx, merged, &retryMinions)
+	if lastErr != nil {
+		return merged, lastErr
+	}
+
+	s.emitExhausted(ctx, retryMinions)
+	if !merged.OK() {
+		return merged, NewExecutionError(merged, nil)
+	}
+
+	return merged, nil
+}
+
+func (s retryState) runAttempts(ctx context.Context, merged *Result, retryMinions *[]string) error {
+	for attempt := 2; attempt <= s.config.MaxAttempts && len(*retryMinions) > 0; attempt++ {
+		if err := s.runAttempt(ctx, merged, retryMinions, attempt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s retryState) runAttempt(ctx context.Context, merged *Result, retryMinions *[]string, attempt int) error {
+	delay := retryDelay(s.config.Backoff, attempt)
+	s.emitScheduled(ctx, *retryMinions, attempt, delay)
+	if err := waitRetryDelay(ctx, delay); err != nil {
+		return err
+	}
+
+	retryReq := s.req
+	retryReq.Target = List((*retryMinions)...)
+	s.emitStarted(ctx, retryReq, *retryMinions, attempt)
+
+	retryResult, retryErr := s.next.Run(ctx, retryReq)
+	retryCurrent := resultFromError(retryResult, retryErr)
+	if retryCurrent == nil {
+		return retryErr
+	}
+
+	mergeRetryResult(merged, retryCurrent)
+	*retryMinions = retryableMinions(s.req, merged, s.config.Predicate)
+
+	return nil
+}
+
+func (s retryState) emitScheduled(ctx context.Context, minions []string, attempt int, delay time.Duration) {
+	for _, minion := range minions {
+		Emit(ctx, NewEvent(EventRetryScheduled, RetryPayload{Request: s.req, Minion: minion, Attempt: attempt, Delay: delay}))
+	}
+}
+
+func (s retryState) emitStarted(ctx context.Context, retryReq Request, minions []string, attempt int) {
+	for _, minion := range minions {
+		Emit(ctx, NewEvent(EventRetryStarted, RetryPayload{Request: retryReq, Minion: minion, Attempt: attempt}))
+	}
+}
+
+func (s retryState) emitExhausted(ctx context.Context, minions []string) {
+	for _, minion := range minions {
+		Emit(ctx, NewEvent(EventRetryExhausted, RetryPayload{Request: s.req, Minion: minion, Attempt: s.config.MaxAttempts}))
 	}
 }
 

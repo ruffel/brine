@@ -81,6 +81,11 @@ func normalizeLocal(result *brine.Result, raw json.RawMessage) error {
 	return nil
 }
 
+// normalizeMinion accepts the two local return shapes observed from REST
+// fixtures in test/integration/fixtures/rest: bare minion return bodies and
+// full_return envelopes containing jid, ret, retcode, and error fields. Async
+// job lookup payloads should add tests before reusing or changing this shape
+// detection.
 func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) brine.MinionResult {
 	full := fullMinionReturn{}
 	if err := json.Unmarshal(raw, &full); err == nil && (len(full.Return) > 0 || full.JID != "" || full.RetCode != 0 || full.Error != "") {

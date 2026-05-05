@@ -1,6 +1,5 @@
 # Justfile for brine
 
-MODULES := ""
 COMPOSE := "test/integration/scripts/compose.sh"
 
 # Default recipe
@@ -8,11 +7,11 @@ default: test lint
 
 # Run all tests with race detection
 test:
-    go test -race ./... $(for mod in {{MODULES}}; do echo "./$mod/..."; done)
+    go test -race ./...
 
 # Run linters
 lint:
-    golangci-lint run ./... $(for mod in {{MODULES}}; do echo "./$mod/..."; done)
+    golangci-lint run ./...
 
 # Clean build artifacts
 clean:
@@ -21,16 +20,10 @@ clean:
 # Run go fmt
 fmt:
     go fmt ./...
-    for mod in {{MODULES}}; do \
-        (cd $mod && go fmt ./...); \
-    done
 
 # Run go mod tidy
 tidy:
     go mod tidy
-    for mod in {{MODULES}}; do \
-        (cd $mod && go mod tidy); \
-    done
 
 # Start the Salt integration environment
 integration-up:
