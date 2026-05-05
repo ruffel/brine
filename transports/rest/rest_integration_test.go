@@ -94,6 +94,28 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		assertReturnedMinions(t, result, minions)
 	})
 
+	t.Run("async job events", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		job, err := client.Start(ctx, brine.Local("test.sleep", target, brine.Args(2)))
+		require.NoError(t, err)
+
+		stream, err := job.Events(ctx)
+		require.NoError(t, err)
+		defer func() { assert.NoError(t, stream.Close()) }()
+
+		event, err := stream.Recv(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, brine.EventRawSalt, event.Type)
+		assert.Equal(t, job.ID(), event.JID)
+
+		result, err := job.Wait(ctx)
+		require.NoError(t, err)
+		assert.True(t, result.OK())
+		assertReturnedMinions(t, result, minions)
+	})
+
 	t.Run("async state partial failure", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
