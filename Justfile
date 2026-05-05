@@ -41,6 +41,10 @@ integration-test:
 contract-rest: integration-ready
     BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -run TestIntegrationRESTContracts -count=1 -v
 
+# Run Python command bridge contract tests against the Salt integration environment
+contract-python: integration-ready
+    BRINE_INTEGRATION=1 go test -tags=integration ./transports/python -run TestIntegrationPythonContracts -count=1 -v
+
 # Run all REST integration tests against the Salt integration environment
 integration-test-rest: integration-ready
     BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -count=1 -v

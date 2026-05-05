@@ -14,6 +14,7 @@ services:
       - ./salt/master.d:/etc/salt/master.d:ro
       - ./salt/states:/srv/salt:ro
       - ./salt/pillar:/srv/pillar:ro
+      - ../../transports/python/brine_salt_bridge.py:/opt/brine/brine_salt_bridge.py:ro
     healthcheck:
       test:
         [

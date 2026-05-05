@@ -423,17 +423,19 @@ Unsupported or limited capabilities:
 - efficient high-concurrency operation;
 - clean async job management across process boundaries.
 
+Implementation status: MVP Option B command bridge is implemented. It starts a
+short-lived helper process per request and advertises only synchronous local
+execution plus responsive target resolution. REST remains the production-oriented
+backend; Python provides compatibility coverage for foundational local workflows
+where Salt's Python libraries are available.
+
 Recommendation:
 
 - Implement REST first against the localhost Salt API endpoint.
 - Keep Python in the design as a compatibility backend, not merely a throwaway
   shim.
-- Current decision: do not start Python transport implementation while the
-  localhost REST endpoint satisfies the production-oriented Salt `v3006` target.
-- If Python is needed only for migration or environments without rest_cherrypy,
-  start with Option B and advertise only local synchronous execution, target
-  resolution, and any helper-emitted per-command progress/return events that are
-  actually implemented.
+- Use the implemented Option B bridge for MVP migration/no-REST environments and
+  advertise only local synchronous execution and target resolution.
 - If Python is needed as a long-term first-class backend or REST parity is
   required, invest in Option A and run it against the same fixture matrix and
   full `brinetest` suite as REST.
@@ -442,11 +444,13 @@ Acceptance criteria:
 
 - Python transport advertises exactly what it supports.
 - Unsupported methods return `UnsupportedError` rather than silently degrading.
-- The helper protocol is JSON and versioned.
+- The helper protocol is JSON; version negotiation is deferred until a
+  long-lived or externally distributed helper is needed.
 - The Go API remains unchanged regardless of Python mode.
-- Python fixture coverage identifies any divergence from REST behavior and
-  documents whether it is a bug, unsupported capability, or intentional
-  transport difference.
+- Python contract coverage identifies divergence from REST behavior through
+  capability-gated skips or failures; future fixture coverage should document
+  whether any raw payload divergence is a bug, unsupported capability, or
+  intentional transport difference.
 - Python is run through `brinetest`; unsupported contracts are skipped only when
   the advertised capability set makes the skip explicit.
 
@@ -561,13 +565,16 @@ Recently completed:
 - [x] Decide whether REST needs more hardening before Python.
 - [x] Confirm Python mode requirements and target compatibility level.
 - [x] Re-evaluate Python transport need.
+- [x] Implement MVP Python command bridge for local synchronous execution.
+- [x] Add Docker-backed Python `brinetest` contract recipe.
+- [x] Add foundational local execution examples for service status and command output.
 - [x] Start Phase 7 request middleware and orchestration integration examples.
 - [x] Start Phase 8 migration of existing callers.
 
 Next:
 
-- [ ] Run `just contract-rest` against the live compose harness before release or handoff.
-- [ ] Begin downstream caller migration using `MIGRATION.md`, or select one of the intentionally deferred REST capabilities below if a concrete workflow requires it.
+- [ ] Run `just contract-rest` and `just contract-python` against the live compose harness before release or handoff.
+- [ ] Begin downstream caller migration using `MIGRATION.md`, or select one of the intentionally deferred REST/Python capabilities below if a concrete workflow requires it.
 
 Intentionally deferred until needed:
 

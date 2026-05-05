@@ -62,7 +62,23 @@ For hermetic unit tests, use `transports/mock` instead of a real Salt master. Tr
 
 Use `Client.Capabilities` for cheap feature checks. `Client.Info` is diagnostic metadata and transports may perform network probes; REST probes Salt's `test.get_opts` runner at most once to populate `SaltVersion` when available.
 
-REST remains the production-oriented backend for the current Salt `v3006` localhost-master target. Python transport implementation is deferred unless a migration or no-REST deployment requirement appears; a future Python command bridge should advertise a smaller capability set, while REST-level parity would require a long-lived helper.
+REST remains the production-oriented backend for the current Salt `v3006` localhost-master target. A minimal Python command bridge is also available for compatibility-oriented local execution in environments where running against Salt's Python libraries is practical. The Python bridge intentionally advertises a smaller capability set than REST.
+
+## MVP compatibility matrix
+
+| Capability | REST transport | Python command bridge |
+| --- | --- | --- |
+| local `test.ping` / `cmd.run` / `service.status` | yes | yes |
+| local `state.sls` | yes | yes, through synchronous local execution |
+| structured args/kwargs | yes | yes |
+| responsive target resolution | yes | yes |
+| runner sync calls | yes | no |
+| wheel sync calls | yes | no |
+| local async start/wait | yes | no |
+| event stream | best-effort SSE | no |
+| raw lowstate | yes | no |
+
+Use `just contract-rest` and `just contract-python` against the Docker Salt topology to verify advertised transport behavior.
 
 ## Middleware and orchestration boundaries
 

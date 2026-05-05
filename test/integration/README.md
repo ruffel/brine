@@ -59,6 +59,12 @@ Run REST contract/parity tests against the live Salt environment:
 just contract-rest
 ```
 
+Run Python command bridge contract/parity tests against the live Salt environment:
+
+```sh
+just contract-python
+```
+
 Run all REST integration tests against the live Salt environment:
 
 ```sh
@@ -129,7 +135,7 @@ Fixtures are sanitized in place by `sanitize-fixtures.sh`.
   this directory to be available on the target Salt master.
 - Event stream fixtures are intentionally not captured yet; event behavior is
   covered by opt-in REST integration and `brinetest` contract tests.
-- Python transport fixtures should use this same topology if Python support is
-  implemented. Prefer a separate compose service for a future long-lived Python
-  helper rather than requiring the Go test runner to include Salt's Python
-  runtime.
+- The Python command bridge contracts execute the mounted helper inside the
+  `salt-master` container so the Go test runner does not need Salt's Python
+  runtime installed locally. A future long-lived Python helper should use this
+  same topology and advertise only the capabilities it implements.
