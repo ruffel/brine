@@ -13,9 +13,12 @@
 // response and lookup semantics are covered by fixtures.
 //
 // Job.Wait collects final local async results with runner.jobs.lookup_jid. If
-// Salt reports that the target matched zero minions, Wait returns an execution
-// failure instead of polling indefinitely because no infrastructure was acted
-// on. When a Brine observer/emitter is attached, Wait also consumes rest_cherrypy's
+// Salt omits the async start minion list for an explicit list target, Brine uses
+// that target list as the expected minion set and keeps polling until every
+// listed minion returns or the wait context ends. If Salt reports that the
+// target matched zero minions, Wait returns an execution failure instead of
+// polling indefinitely because no infrastructure was acted on. When a Brine
+// observer/emitter is attached, Wait also consumes rest_cherrypy's
 // /events stream for low-latency minion return progress; lookup remains the
 // correctness and reconciliation source if events are missed or the stream ends.
 // The lookup polling interval is configured with Config.JobPollInterval and

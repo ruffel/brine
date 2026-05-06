@@ -46,16 +46,37 @@ func newLocalJob(transport *Transport, req brine.Request, body []byte) (*localJo
 	}
 
 	job := &localJob{
-		transport:     transport,
-		jid:           parsed.Return[0].JID,
-		req:           req,
-		expectedKnown: parsed.Return[0].Minions != nil,
+		transport: transport,
+		jid:       parsed.Return[0].JID,
+		req:       req,
 	}
 	if parsed.Return[0].Minions != nil {
+		job.expectedKnown = true
 		job.expected = append([]string(nil), (*parsed.Return[0].Minions)...)
+	} else if expected, ok := expectedMinionsFromRequest(req); ok {
+		job.expectedKnown = true
+		job.expected = expected
 	}
 
 	return job, nil
+}
+
+func expectedMinionsFromRequest(req brine.Request) ([]string, bool) {
+	if req.Kind != brine.KindLocal {
+		return nil, false
+	}
+
+	spec, err := brine.DescribeTarget(req.Target)
+	if err != nil || spec.Type != brine.TargetList {
+		return nil, false
+	}
+
+	minions, ok := spec.Expression.([]string)
+	if !ok {
+		return nil, false
+	}
+
+	return append([]string(nil), minions...), true
 }
 
 func (j *localJob) ID() string { return j.jid }

@@ -1291,6 +1291,44 @@ func TestStartLocalAsyncAndWait(t *testing.T) {
 	assert.Equal(t, 2, requestCount)
 }
 
+func TestStartLocalAsyncWaitUsesListTargetWhenStartOmitsMinions(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		switch requestCount {
+		case 1:
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid"}]}`))
+		case 2:
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		case 3:
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		default:
+			t.Fatalf("unexpected request %d", requestCount)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, JobPollInterval: time.Millisecond})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.List("minion-1", "minion-2")))
+	require.NoError(t, err)
+
+	local, ok := job.(brine.LocalJob)
+	require.True(t, ok)
+	assert.Equal(t, []string{"minion-1", "minion-2"}, local.ExpectedMinions())
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+	assert.Equal(t, 3, requestCount)
+}
+
 func TestStartLocalAsyncWaitFailsWhenTargetMatchesNoMinions(t *testing.T) {
 	t.Parallel()
 
