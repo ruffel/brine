@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,7 +39,7 @@ const asyncStateFailureResponse = `{
   }]
 }`
 
-func TestRunLocalPing(t *testing.T) {
+func TestRunLocalDirectModePing(t *testing.T) {
 	t.Parallel()
 
 	var captured []map[string]any
@@ -51,7 +53,7 @@ func TestRunLocalPing(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
+	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token"), LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
@@ -63,6 +65,213 @@ func TestRunLocalPing(t *testing.T) {
 	assert.Equal(t, "*", captured[0]["tgt"])
 }
 
+func TestRunLocalDefaultUsesAsyncLookupProgress(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == eventStreamPath {
+			writer.Header().Set("Content-Type", "text/event-stream")
+
+			return
+		}
+
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+		captured = append(captured, payload[0])
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1","minion-2"]}]}`))
+		case "runner":
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	recorder := &eventRecorder{}
+	ctx := brine.WithEmitter(context.Background(), recorder)
+	result, err := transport.Run(ctx, brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.Equal(t, "jid-1", result.JID)
+	assert.Len(t, captured, 2)
+	assert.Equal(t, "local_async", captured[0]["client"])
+	assert.Equal(t, "runner", captured[1]["client"])
+	assert.Equal(t, []brine.EventType{brine.EventExpectedMinions, brine.EventMinionReturned, brine.EventMinionReturned}, recorder.types())
+}
+
+func TestLocalRunModeCapabilities(t *testing.T) {
+	t.Parallel()
+
+	asyncTransport, err := New(Config{BaseURL: "http://127.0.0.1:8000"})
+	require.NoError(t, err)
+	assert.True(t, asyncTransport.Capabilities().Supports(brine.CapRunScopedReturns))
+
+	directTransport, err := New(Config{BaseURL: "http://127.0.0.1:8000", LocalRunMode: LocalRunModeDirect})
+	require.NoError(t, err)
+	assert.False(t, directTransport.Capabilities().Supports(brine.CapRunScopedReturns))
+}
+
+func TestRunLocalObservedConsumesSSEBeforeLookupReconciliation(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	lookupCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == eventStreamPath {
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = writer.Write([]byte("tag: salt/job/jid-1/ret/minion-1\n"))
+			_, _ = writer.Write([]byte("data: {\"jid\":\"jid-1\",\"id\":\"minion-1\",\"return\":true,\"retcode\":0,\"success\":true}\n\n"))
+			if flusher, ok := writer.(http.Flusher); ok {
+				flusher.Flush()
+			}
+
+			return
+		}
+
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1","minion-2"]}]}`))
+		case "runner":
+			mu.Lock()
+			lookupCount++
+			count := lookupCount
+			mu.Unlock()
+			if count == 1 {
+				_, _ = writer.Write([]byte(`{"return":[{}]}`))
+
+				return
+			}
+
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, JobPollInterval: 10 * time.Millisecond})
+	require.NoError(t, err)
+
+	recorder := &eventRecorder{}
+	ctx := brine.WithEmitter(context.Background(), recorder)
+	result, err := transport.Run(ctx, brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+
+	mu.Lock()
+	assert.GreaterOrEqual(t, lookupCount, 2)
+	mu.Unlock()
+
+	assert.True(t, recorder.hasMinionReturnRaw("minion-1", `"jid":"jid-1"`))
+}
+
+func TestRunLocalAutoModeUsesDirectWithoutObserver(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&captured))
+		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeAuto})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	require.Len(t, captured, 1)
+	assert.Equal(t, "local", captured[0]["client"])
+}
+
+func TestRunLocalAutoModeUsesAsyncWithObserver(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == eventStreamPath {
+			writer.Header().Set("Content-Type", "text/event-stream")
+
+			return
+		}
+
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+		captured = append(captured, payload[0])
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1"]}]}`))
+		case "runner":
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeAuto})
+	require.NoError(t, err)
+
+	recorder := &eventRecorder{}
+	ctx := brine.WithEmitter(context.Background(), recorder)
+	result, err := transport.Run(ctx, brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.Len(t, captured, 2)
+	assert.Equal(t, "local_async", captured[0]["client"])
+	assert.Equal(t, "runner", captured[1]["client"])
+	assert.Equal(t, []brine.EventType{brine.EventExpectedMinions, brine.EventMinionReturned}, recorder.types())
+}
+
+func TestRunLocalDefaultUsesAsyncLookupWithoutObserver(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+		captured = append(captured, payload[0])
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1"]}]}`))
+		case "runner":
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.Equal(t, "jid-1", result.JID)
+	assert.Len(t, captured, 2)
+	assert.Equal(t, "local_async", captured[0]["client"])
+	assert.Equal(t, "runner", captured[1]["client"])
+}
+
 func TestRunListTargetFullReturnFailure(t *testing.T) {
 	t.Parallel()
 
@@ -71,7 +280,7 @@ func TestRunListTargetFullReturnFailure(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
+	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token"), LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("state.sls", brine.List("minion-1"), brine.Args("brine.fail")))
@@ -92,7 +301,7 @@ func TestRunBareFalseMinionReturn(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
@@ -137,7 +346,7 @@ func TestNoAuthOmitsToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
@@ -154,7 +363,7 @@ func TestNilAuthOmitsToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL})
+	transport, err := New(Config{BaseURL: server.URL, LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
@@ -181,7 +390,7 @@ func TestPAMAuthLogin(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi")})
+	transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi"), LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
@@ -329,7 +538,7 @@ func TestPAMAuthRetriesOnceAfterUnauthorized(t *testing.T) {
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi")})
+	transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi"), LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
@@ -349,7 +558,7 @@ func runAndCapturePayload(t *testing.T, req brine.Request, response string) []ma
 	}))
 	defer server.Close()
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 
 	_, err = transport.Run(context.Background(), req)
@@ -664,6 +873,31 @@ func decodeRESTPayload(t *testing.T, request *http.Request) {
 	var payload []map[string]any
 	require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
 	require.Len(t, payload, 1)
+}
+
+type eventRecorder struct{ events []brine.Event }
+
+func (r *eventRecorder) Emit(_ context.Context, event brine.Event) {
+	r.events = append(r.events, event)
+}
+
+func (r *eventRecorder) types() []brine.EventType {
+	types := make([]brine.EventType, 0, len(r.events))
+	for _, event := range r.events {
+		types = append(types, event.Type)
+	}
+
+	return types
+}
+
+func (r *eventRecorder) hasMinionReturnRaw(minion string, raw string) bool {
+	for _, event := range r.events {
+		if event.Type == brine.EventMinionReturned && event.Minion == minion && strings.Contains(string(event.Raw), raw) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestUnauthorized(t *testing.T) {

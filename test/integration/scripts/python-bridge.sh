@@ -3,5 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${ROOT_DIR}/compose.yaml"
+COMPOSE=("${ROOT_DIR}/scripts/compose.sh" -f "${COMPOSE_FILE}")
 
-exec docker compose -f "${COMPOSE_FILE}" exec -T salt-master python3 /opt/brine/brine_salt_bridge.py
+exec "${COMPOSE[@]}" exec -T salt-master python3 /opt/brine/brine_salt_bridge.py

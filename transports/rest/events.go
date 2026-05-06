@@ -42,10 +42,8 @@ type saltEventFrame struct {
 }
 
 // Subscribe opens Salt's rest_cherrypy server-sent event stream. The returned
-// EventStream must be closed by the caller. Recv blocks on the underlying HTTP
-// connection between context checks, so callers that need prompt cancellation
-// should call Close concurrently rather than relying solely on context
-// cancellation.
+// EventStream must be closed by the caller. Recv closes the underlying stream
+// when its context is canceled so idle SSE reads unblock promptly.
 func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (brine.EventStream, error) {
 	requestCtx, cancel := context.WithCancel(ctx)
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, t.baseURL+eventStreamPath, nil)
@@ -109,10 +107,18 @@ func validateStreamResponse(response *http.Response) error {
 }
 
 // Recv blocks until the next event matching the stream's filter is available.
-// Context cancellation is checked between frames; however, if the SSE
-// connection is idle, Recv may block in the underlying read until Close is
-// called or the server sends data.
 func (s *eventStream) Recv(ctx context.Context) (brine.Event, error) {
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = s.Close()
+		case <-done:
+		}
+	}()
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return brine.Event{}, err
@@ -120,6 +126,10 @@ func (s *eventStream) Recv(ctx context.Context) (brine.Event, error) {
 
 		frame, err := s.nextFrame()
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return brine.Event{}, ctxErr
+			}
+
 			return brine.Event{}, err
 		}
 
@@ -218,6 +228,7 @@ func (f saltEventFrame) minionReturn() (brine.MinionResult, bool) {
 		return brine.MinionResult{}, false
 	}
 
+	payload := eventPayload(f.data)
 	var body struct {
 		JID     string          `json:"jid"`
 		ID      string          `json:"id"`
@@ -227,7 +238,7 @@ func (f saltEventFrame) minionReturn() (brine.MinionResult, bool) {
 		Success *bool           `json:"success"`
 		Error   string          `json:"error"`
 	}
-	if err := json.Unmarshal(f.data, &body); err != nil || len(body.Return) == 0 {
+	if err := json.Unmarshal(payload, &body); err != nil || len(body.Return) == 0 {
 		return brine.MinionResult{}, false
 	}
 
@@ -278,7 +289,7 @@ func firstNonEmpty(values ...string) string {
 
 func eventJID(tag string, raw json.RawMessage) string {
 	var body map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &body); err == nil {
+	if err := json.Unmarshal(eventPayload(raw), &body); err == nil {
 		var jid string
 		if err := json.Unmarshal(body["jid"], &jid); err == nil {
 			return jid
@@ -297,7 +308,7 @@ func eventJID(tag string, raw json.RawMessage) string {
 
 func eventMinion(raw json.RawMessage) string {
 	var body map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &body); err != nil {
+	if err := json.Unmarshal(eventPayload(raw), &body); err != nil {
 		return ""
 	}
 
@@ -309,6 +320,17 @@ func eventMinion(raw json.RawMessage) string {
 	}
 
 	return ""
+}
+
+func eventPayload(raw json.RawMessage) json.RawMessage {
+	var wrapped struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err == nil && len(wrapped.Data) > 0 {
+		return wrapped.Data
+	}
+
+	return raw
 }
 
 func eventMatchesFilter(event brine.Event, filter brine.EventFilter, tag string) bool {

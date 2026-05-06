@@ -22,12 +22,28 @@ const (
 	maxResponseBytes = 64 * 1024 * 1024 // 64 MiB
 )
 
+// LocalRunMode controls how local execution requests are collected by Run.
+type LocalRunMode int
+
+const (
+	// LocalRunModeAsync dispatches local Run requests with local_async and
+	// collects the final result with jobs.lookup_jid. This is the default.
+	LocalRunModeAsync LocalRunMode = iota
+	// LocalRunModeDirect dispatches local Run requests with Salt's synchronous
+	// local client.
+	LocalRunModeDirect
+	// LocalRunModeAuto dispatches local Run requests asynchronously only when a
+	// Brine observer/emitter is attached for run-scoped progress.
+	LocalRunModeAuto
+)
+
 // Config configures a rest_cherrypy transport.
 type Config struct {
 	BaseURL         string
 	HTTPClient      *http.Client
 	Auth            Authenticator
 	JobPollInterval time.Duration
+	LocalRunMode    LocalRunMode
 }
 
 // Authenticator provides Salt API authentication tokens.
@@ -43,6 +59,7 @@ type Transport struct {
 	client          *http.Client
 	auth            Authenticator
 	jobPollInterval time.Duration
+	localRunMode    LocalRunMode
 	caps            brine.Capabilities
 
 	infoOnce   sync.Once
@@ -71,18 +88,30 @@ func New(config Config) (*Transport, error) {
 		client:          client,
 		auth:            config.Auth,
 		jobPollInterval: jobPollInterval,
-		caps: brine.NewCapabilities(
-			brine.CapSynchronousRun,
-			brine.CapLocalRun,
-			brine.CapLocalStart,
-			brine.CapRunnerRun,
-			brine.CapWheelRun,
-			brine.CapLowstate,
-			brine.CapEvents,
-			brine.CapJobLookup,
-			brine.CapTargetResolution,
-		),
+		localRunMode:    config.LocalRunMode,
+		caps:            capabilitiesForLocalRunMode(config.LocalRunMode),
 	}, nil
+}
+
+func capabilitiesForLocalRunMode(mode LocalRunMode) brine.Capabilities {
+	caps := []brine.Capability{
+		brine.CapSynchronousRun,
+		brine.CapLocalRun,
+		brine.CapLocalStart,
+		brine.CapRunnerRun,
+		brine.CapWheelRun,
+		brine.CapLowstate,
+		brine.CapEvents,
+		brine.CapJobLookup,
+		brine.CapTargetResolution,
+		brine.CapStreamingReturns,
+	}
+
+	if mode != LocalRunModeDirect {
+		caps = append(caps, brine.CapRunScopedReturns)
+	}
+
+	return brine.NewCapabilities(caps...)
 }
 
 // Capabilities implements brine.Transport.
@@ -114,6 +143,36 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 		return nil, err
 	}
 
+	if req.Kind == brine.KindLocal && t.shouldRunLocalAsync(ctx) {
+		return t.runLocalAsync(ctx, req)
+	}
+
+	return t.runDirect(ctx, req)
+}
+
+func (t *Transport) shouldRunLocalAsync(ctx context.Context) bool {
+	switch t.localRunMode {
+	case LocalRunModeAsync:
+		return true
+	case LocalRunModeDirect:
+		return false
+	case LocalRunModeAuto:
+		return brine.HasEmitter(ctx)
+	default:
+		return true
+	}
+}
+
+func (t *Transport) runLocalAsync(ctx context.Context, req brine.Request) (*brine.Result, error) {
+	job, err := t.Start(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return job.Wait(ctx)
+}
+
+func (t *Transport) runDirect(ctx context.Context, req brine.Request) (*brine.Result, error) {
 	payload, err := lowstatePayload(req)
 	if err != nil {
 		return nil, err
@@ -153,7 +212,7 @@ func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, er
 // Resolve resolves responsive minions by running Salt's test.ping and
 // filtering to only those that returned successfully.
 func (t *Transport) Resolve(ctx context.Context, target brine.Target) ([]string, error) {
-	result, err := t.Run(ctx, brine.Local("test.ping", target))
+	result, err := t.runDirect(ctx, brine.Local("test.ping", target))
 	if err != nil {
 		return nil, err
 	}

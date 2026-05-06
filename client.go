@@ -93,8 +93,10 @@ func (c *Client) Run(ctx context.Context, req Request, opts ...RunOption) (*Resu
 		opt(runCfg)
 	}
 
-	emitter := &observerEmitter{observer: MultiObserver(c.observer, runCfg.observer)}
-	ctx = WithEmitter(ctx, emitter)
+	if c.observer != nil || runCfg.observer != nil {
+		emitter := &observerEmitter{observer: MultiObserver(c.observer, runCfg.observer)}
+		ctx = WithEmitter(ctx, emitter)
+	}
 
 	outcome := runOutcome{}
 	recoverRun(&outcome, func() {

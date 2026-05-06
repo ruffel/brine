@@ -65,6 +65,28 @@ func TestServiceStatus(t *testing.T) {
 	transport.On("Run", testifymock.Anything, testifymock.Anything).
 		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
 			require.Equal(t, "service.status", req.Function)
+			require.Equal(t, []any{"sshd"}, req.Args)
+			require.Empty(t, req.Kwargs)
+
+			return localResult(req, map[string]returnValue{"minion-1": {body: `true`}}), nil
+		})
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+
+	result, err := modules.ServiceStatus(ctx(), client, brine.Glob("*"), "sshd", modules.ServiceStatusOptions{})
+	require.NoError(t, err)
+	assert.True(t, result.Nodes["minion-1"])
+}
+
+func TestServiceStatusRegex(t *testing.T) {
+	t.Parallel()
+
+	transport := mock.New()
+	transport.Caps = brine.NewCapabilities(brine.CapSynchronousRun, brine.CapLocalRun)
+	transport.On("Run", testifymock.Anything, testifymock.Anything).
+		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
+			require.Equal(t, "service.status", req.Function)
 			require.Equal(t, []any{"^(web|db).*"}, req.Args)
 			require.Equal(t, true, req.Kwargs["regex"])
 
@@ -74,7 +96,7 @@ func TestServiceStatus(t *testing.T) {
 	client, err := brine.New(transport)
 	require.NoError(t, err)
 
-	result, err := modules.ServiceStatus(ctx(), client, brine.Glob("*"), "^(web|db).*", modules.ServiceStatusOptions{Regex: true})
+	result, err := modules.ServiceStatusRegex(ctx(), client, brine.Glob("*"), "^(web|db).*", modules.ServiceStatusRegexOptions{})
 	require.NoError(t, err)
 	assert.True(t, result.Nodes["minion-1"]["web"])
 	assert.False(t, result.Nodes["minion-1"]["db"])
@@ -139,6 +161,34 @@ func TestRunLocalReturnsPartialResultWithExecutionError(t *testing.T) {
 	require.ErrorAs(t, err, &executionError)
 	assert.Equal(t, "ok", result.Nodes["minion-1"])
 	assert.Equal(t, []string{"minion-2"}, result.FailedNodes)
+}
+
+func TestRunLocalReturnsPartialResultWithDecodeError(t *testing.T) {
+	t.Parallel()
+
+	transport := mock.New()
+	transport.Caps = brine.NewCapabilities(brine.CapSynchronousRun, brine.CapLocalRun)
+	transport.On("Run", testifymock.Anything, testifymock.Anything).
+		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
+			return localResult(req, map[string]returnValue{
+				"minion-1": {body: `"ok"`},
+				"minion-2": {body: `{"unexpected":true}`},
+			}), nil
+		})
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+
+	result, err := modules.RunLocal[string](ctx(), client, brine.Local("cmd.run", brine.Glob("*"), brine.Args("true")))
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "ok", result.Nodes["minion-1"])
+	assert.NotContains(t, result.Nodes, "minion-2")
+
+	var decodeError *modules.DecodeError
+	require.ErrorAs(t, err, &decodeError)
+	assert.Equal(t, "minion-2", decodeError.Minion)
+	assert.Equal(t, "cmd.run", decodeError.Function)
 }
 
 func clientForReturn(t *testing.T, function string, body string) *brine.Client {

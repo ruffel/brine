@@ -75,6 +75,7 @@ func run(stdout io.Writer, stderr io.Writer, args []string) error {
 	flags.Var(&providers, "provider", "provider as name=package:TestName; may be repeated")
 	tags := flags.String("tags", "integration", "go test build tags")
 	timeout := flags.Duration("timeout", defaultProviderTimeout, "timeout per provider")
+	showProgress := flags.Bool("progress", true, "print provider and contract progress to stderr while tests run")
 	verbose := flags.Bool("v", false, "print go test stderr for provider command errors")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -82,7 +83,7 @@ func run(stdout io.Writer, stderr io.Writer, args []string) error {
 
 	results := make([]providerResult, 0, len(providers))
 	for _, provider := range providers {
-		result := runProvider(provider, *tags, *timeout)
+		result := runProvider(provider, *tags, *timeout, progressWriter(stderr, *showProgress))
 		results = append(results, result)
 		if *verbose && result.Err != nil && result.Err.Error() != "" {
 			_, _ = fmt.Fprintf(stderr, "%s: %v\n", provider.Name, result.Err)
@@ -138,7 +139,15 @@ func parseProvider(value string) (providerSpec, error) {
 	return providerSpec{Name: name, Pkg: pkg, Run: test}, nil
 }
 
-func runProvider(spec providerSpec, tags string, timeout time.Duration) providerResult {
+func progressWriter(w io.Writer, enabled bool) io.Writer {
+	if !enabled {
+		return io.Discard
+	}
+
+	return w
+}
+
+func runProvider(spec providerSpec, tags string, timeout time.Duration, progress io.Writer) providerResult {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -149,17 +158,50 @@ func runProvider(spec providerSpec, tags string, timeout time.Duration) provider
 	args = append(args, spec.Pkg, "-run", spec.Run, "-count=1", "-v")
 
 	cmd := exec.CommandContext(ctx, "go", args...)
-	cmd.Env = os.Environ()
+	cmd.Env = providerEnv(tags)
 
-	var out bytes.Buffer
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return providerResult{
+			Spec:     spec,
+			Outcomes: map[string]contractOutcome{spec.Run: {Status: outcomeError, Reason: err.Error()}},
+			Order:    []string{spec.Run},
+			Err:      err,
+		}
+	}
+
 	var errOut bytes.Buffer
-	cmd.Stdout = &out
 	cmd.Stderr = &errOut
-	runErr := cmd.Run()
 
-	result := parseProviderOutput(spec, out.Bytes())
+	_, _ = fmt.Fprintf(progress, "running %s (%s:%s)\n", spec.Name, spec.Pkg, spec.Run)
+
+	if err := cmd.Start(); err != nil {
+		return providerResult{
+			Spec:     spec,
+			Outcomes: map[string]contractOutcome{spec.Run: {Status: outcomeError, Reason: err.Error()}},
+			Order:    []string{spec.Run},
+			Err:      err,
+		}
+	}
+
+	parser := newProviderOutputParser(spec)
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		update := parser.apply(scanner.Bytes())
+		if update.ID != "" {
+			printProgress(progress, spec.Name, update)
+		}
+	}
+
+	scanErr := scanner.Err()
+	runErr := cmd.Wait()
+
+	result := parser.result
+	if scanErr != nil {
+		result.Err = errors.Join(result.Err, scanErr)
+	}
 	if runErr != nil {
-		result.Err = errors.Join(runErr, errors.New(strings.TrimSpace(errOut.String())))
+		result.Err = errors.Join(result.Err, runErr, errors.New(strings.TrimSpace(errOut.String())))
 		if len(result.Outcomes) == 0 {
 			result.Outcomes[spec.Run] = contractOutcome{Status: outcomeError, Reason: result.Err.Error()}
 			result.Order = append(result.Order, spec.Run)
@@ -170,44 +212,146 @@ func runProvider(spec providerSpec, tags string, timeout time.Duration) provider
 		result.Err = ctx.Err()
 	}
 
+	if len(result.Outcomes) == 0 && result.Err == nil {
+		result.Err = errors.New("provider reported no contract outcomes")
+		result.Outcomes[spec.Run] = contractOutcome{Status: outcomeError, Reason: result.Err.Error()}
+		result.Order = append(result.Order, spec.Run)
+	}
+
+	_, _ = fmt.Fprintf(progress, "finished %s: %s\n", spec.Name, providerProgressSummary(result))
+
 	return result
 }
 
-func parseProviderOutput(spec providerSpec, data []byte) providerResult {
-	result := providerResult{Spec: spec, Outcomes: make(map[string]contractOutcome)}
-	outputs := make(map[string][]string)
+func providerEnv(tags string) []string {
+	env := os.Environ()
+	if strings.Contains(tags, "integration") && os.Getenv("BRINE_INTEGRATION") == "" {
+		env = append(env, "BRINE_INTEGRATION=1")
+	}
 
+	return env
+}
+
+type providerProgressUpdate struct {
+	ID       string
+	Status   string
+	Duration time.Duration
+}
+
+type providerOutputParser struct {
+	spec    providerSpec
+	result  providerResult
+	outputs map[string][]string
+}
+
+func newProviderOutputParser(spec providerSpec) *providerOutputParser {
+	return &providerOutputParser{
+		spec: spec,
+		result: providerResult{
+			Spec:     spec,
+			Outcomes: make(map[string]contractOutcome),
+		},
+		outputs: make(map[string][]string),
+	}
+}
+
+func (p *providerOutputParser) apply(line []byte) providerProgressUpdate {
+	var event testEvent
+	if err := json.Unmarshal(line, &event); err != nil {
+		return providerProgressUpdate{}
+	}
+
+	id, ok := contractID(p.spec.Run, event.Test)
+	if !ok {
+		return providerProgressUpdate{}
+	}
+
+	if event.Output != "" {
+		p.outputs[id] = append(p.outputs[id], event.Output)
+	}
+
+	switch event.Action {
+	case "run":
+		return providerProgressUpdate{ID: id, Status: "RUN"}
+	case "pass", "skip", "fail":
+		if _, exists := p.result.Outcomes[id]; !exists {
+			p.result.Order = append(p.result.Order, id)
+		}
+
+		outcome := contractOutcome{
+			Status:   statusFromAction(event.Action),
+			Reason:   reasonFromOutput(p.outputs[id]),
+			Duration: time.Duration(event.Elapsed * float64(time.Second)),
+		}
+		p.result.Outcomes[id] = outcome
+
+		return providerProgressUpdate{ID: id, Status: outcome.Status, Duration: outcome.Duration}
+	default:
+		return providerProgressUpdate{}
+	}
+}
+
+func parseProviderOutput(spec providerSpec, data []byte) providerResult {
+	parser := newProviderOutputParser(spec)
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
-		var event testEvent
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			continue
-		}
+		_ = parser.apply(scanner.Bytes())
+	}
 
-		id, ok := contractID(spec.Run, event.Test)
-		if !ok {
-			continue
-		}
+	return parser.result
+}
 
-		if event.Output != "" {
-			outputs[id] = append(outputs[id], event.Output)
-		}
+func printProgress(w io.Writer, provider string, update providerProgressUpdate) {
+	if update.Status == "RUN" {
+		_, _ = fmt.Fprintf(w, "  %s %s ...\n", provider, update.ID)
 
-		switch event.Action {
-		case "pass", "skip", "fail":
-			if _, exists := result.Outcomes[id]; !exists {
-				result.Order = append(result.Order, id)
-			}
+		return
+	}
 
-			result.Outcomes[id] = contractOutcome{
-				Status:   statusFromAction(event.Action),
-				Reason:   reasonFromOutput(outputs[id]),
-				Duration: time.Duration(event.Elapsed * float64(time.Second)),
-			}
+	_, _ = fmt.Fprintf(w, "  %s %s %s %s\n", provider, update.ID, update.Status, formatDuration(update.Duration))
+}
+
+func providerProgressSummary(result providerResult) string {
+	var pass, skip, fail, errCount int
+	for _, outcome := range result.Outcomes {
+		switch outcome.Status {
+		case outcomePass:
+			pass++
+		case outcomeSkip:
+			skip++
+		case outcomeFail:
+			fail++
+		case outcomeError:
+			errCount++
 		}
 	}
 
-	return result
+	parts := make([]string, 0, 4)
+	if pass > 0 {
+		parts = append(parts, fmt.Sprintf("%d passed", pass))
+	}
+	if skip > 0 {
+		parts = append(parts, fmt.Sprintf("%d skipped", skip))
+	}
+	if fail > 0 {
+		parts = append(parts, fmt.Sprintf("%d failed", fail))
+	}
+	if errCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d errors", errCount))
+	}
+	if len(parts) == 0 {
+		return "no contracts"
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func formatDuration(duration time.Duration) string {
+	if duration <= 0 {
+		return ""
+	}
+
+	return "(" + duration.Round(10*time.Millisecond).String() + ")"
 }
 
 func contractID(root string, test string) (string, bool) {
@@ -336,9 +480,16 @@ func printTable(w io.Writer, results []providerResult) {
 
 func printDetails(w io.Writer, results []providerResult) {
 	var details []string
+	ids := orderedContractIDs(results)
 	for _, result := range results {
-		for _, id := range result.Order {
-			outcome := result.Outcomes[id]
+		for _, id := range ids {
+			outcome, ok := result.Outcomes[id]
+			if !ok {
+				details = append(details, fmt.Sprintf("%s %s %s: provider did not report this contract", result.Spec.Name, id, outcomeMissing))
+
+				continue
+			}
+
 			if outcome.Status == outcomePass || outcome.Reason == "" {
 				continue
 			}
@@ -360,9 +511,17 @@ func printDetails(w io.Writer, results []providerResult) {
 }
 
 func printSummary(w io.Writer, results []providerResult) {
-	var pass, skip, fail, errCount int
+	var pass, skip, fail, errCount, missing int
+	ids := orderedContractIDs(results)
 	for _, result := range results {
-		for _, outcome := range result.Outcomes {
+		for _, id := range ids {
+			outcome, ok := result.Outcomes[id]
+			if !ok {
+				missing++
+
+				continue
+			}
+
 			switch outcome.Status {
 			case outcomePass:
 				pass++
@@ -388,6 +547,9 @@ func printSummary(w io.Writer, results []providerResult) {
 	}
 	if errCount > 0 {
 		parts = append(parts, styleError.Render(fmt.Sprintf("%d errors", errCount)))
+	}
+	if missing > 0 {
+		parts = append(parts, styleError.Render(fmt.Sprintf("%d missing", missing)))
 	}
 
 	if len(parts) == 0 {
@@ -434,12 +596,18 @@ func orderedContractIDs(results []providerResult) []string {
 }
 
 func hasFailure(results []providerResult) bool {
+	ids := orderedContractIDs(results)
 	for _, result := range results {
 		if result.Err != nil {
 			return true
 		}
 
-		for _, outcome := range result.Outcomes {
+		for _, id := range ids {
+			outcome, ok := result.Outcomes[id]
+			if !ok {
+				return true
+			}
+
 			if outcome.Status == outcomeFail || outcome.Status == outcomeError {
 				return true
 			}

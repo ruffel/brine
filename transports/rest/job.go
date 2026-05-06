@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/internal/resultaccumulator"
 )
 
 const defaultJobLookupPollInterval = time.Second
@@ -99,22 +100,100 @@ func (j *localJob) Events(ctx context.Context) (brine.EventStream, error) {
 }
 
 func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
+	accumulator := resultaccumulator.New(j.req)
+	if len(j.expected) > 0 {
+		accumulator.SetExpected(ctx, j.jid, j.expected)
+	} else {
+		accumulator.SetJID(j.jid)
+	}
+
+	events, stopEvents := j.startReturnEventStream(ctx)
+	defer stopEvents()
+
 	for {
 		result, err := j.transport.lookupLocalJob(ctx, j.req, j.jid, j.expected)
 		if err != nil {
+			if accumulator.HasReturns() {
+				return accumulator.Result(), err, false
+			}
+
 			return result, err, false
 		}
 
-		if jobLookupComplete(result, j.expected) {
-			result, err := resultWithExecutionError(result)
+		accumulator.MergeResult(ctx, result)
+		current := accumulator.Result()
+		if jobLookupComplete(current, j.expected) {
+			result, err := resultWithExecutionError(current)
 
 			return result, err, true
 		}
 
-		if err := waitJobLookupPoll(ctx, j.transport.jobPollInterval); err != nil {
-			return result, brine.NewExecutionError(result, err), false
+		if err := waitJobLookupPollOrEvent(ctx, j.transport.jobPollInterval, events, accumulator); err != nil {
+			current = accumulator.Result()
+
+			return current, brine.NewExecutionError(current, err), false
 		}
 	}
+}
+
+type localJobReturn struct {
+	result brine.MinionResult
+	raw    json.RawMessage
+}
+
+func (j *localJob) startReturnEventStream(ctx context.Context) (<-chan localJobReturn, func()) {
+	if !brine.HasEmitter(ctx) || j.transport == nil {
+		return nil, func() {}
+	}
+
+	streamCtx, cancel := context.WithCancel(ctx)
+	streamReady := make(chan brine.EventStream, 1)
+	returns := make(chan localJobReturn, len(j.expected)+1)
+
+	go func() {
+		defer close(returns)
+
+		stream, err := j.Events(streamCtx)
+		if err != nil {
+			return
+		}
+		defer func() { _ = stream.Close() }()
+
+		select {
+		case streamReady <- stream:
+		case <-streamCtx.Done():
+			return
+		}
+
+		for {
+			event, err := stream.Recv(streamCtx)
+			if err != nil {
+				return
+			}
+
+			payload, ok := event.MinionReturned()
+			if !ok {
+				continue
+			}
+
+			select {
+			case returns <- localJobReturn{result: payload.Result, raw: event.Raw}:
+			case <-streamCtx.Done():
+				return
+			}
+		}
+	}()
+
+	stop := func() {
+		cancel()
+		select {
+		case stream := <-streamReady:
+			_ = stream.Close()
+		default:
+		}
+	}
+
+	return returns, stop
 }
 
 func (t *Transport) lookupLocalJob(
@@ -216,6 +295,45 @@ func resultWithExecutionError(result *brine.Result) (*brine.Result, error) {
 	}
 
 	return result, brine.NewExecutionError(result, nil)
+}
+
+func waitJobLookupPollOrEvent(
+	ctx context.Context,
+	interval time.Duration,
+	events <-chan localJobReturn,
+	accumulator *resultaccumulator.Accumulator,
+) error {
+	if events == nil {
+		return waitJobLookupPoll(ctx, interval)
+	}
+
+	if interval <= 0 {
+		interval = defaultJobLookupPollInterval
+	}
+
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+
+				continue
+			}
+
+			accumulator.AddRaw(event.raw)
+			accumulator.AddMinion(ctx, event.result)
+			if accumulator.Complete() {
+				return nil
+			}
+		case <-timer.C:
+			return nil
+		}
+	}
 }
 
 func waitJobLookupPoll(ctx context.Context, interval time.Duration) error {

@@ -78,6 +78,34 @@ func TestSubscribeNormalizesMinionReturnEvents(t *testing.T) {
 	assert.Nil(t, payload.Result.Failure)
 }
 
+func TestSubscribeNormalizesWrappedMinionReturnEvents(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("tag: salt/job/111/ret/minion-1\n"))
+		_, _ = writer.Write([]byte("data: {\"data\":{\"jid\":\"111\",\"id\":\"minion-1\",\"return\":true,\"retcode\":0,\"success\":true},\"tag\":\"salt/job/111/ret/minion-1\"}\n\n"))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{JID: "111"})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	event, err := stream.Recv(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, brine.EventMinionReturned, event.Type)
+	assert.Equal(t, "111", event.JID)
+	assert.Equal(t, "minion-1", event.Minion)
+
+	payload, ok := event.MinionReturned()
+	require.True(t, ok)
+	assert.JSONEq(t, `true`, string(payload.Result.Return))
+}
+
 func TestSubscribeNormalizesFailedMinionReturnEvents(t *testing.T) {
 	t.Parallel()
 

@@ -19,7 +19,7 @@ const (
 	CategoryLowstate    = "lowstate"
 	CategoryUnsupported = "unsupported"
 
-	initialContractCapacity = 26
+	initialContractCapacity = 27
 )
 
 // StateNames names deterministic test states available to contract tests.

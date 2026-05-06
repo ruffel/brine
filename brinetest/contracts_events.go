@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/ruffel/brine"
 	"github.com/stretchr/testify/assert"
@@ -60,7 +61,7 @@ func verifyJobEventReceivesMatchingJID(t *testing.T, h Harness) {
 	ctx, cancel := contractContext(t, defaultAsyncTimeout)
 	defer cancel()
 
-	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(2)))
+	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(5)))
 	require.NoError(t, err)
 
 	stream, err := job.Events(ctx)
@@ -83,7 +84,7 @@ func verifyJobEventMinionReturn(t *testing.T, h Harness) {
 	ctx, cancel := contractContext(t, defaultAsyncTimeout)
 	defer cancel()
 
-	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(2)))
+	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(5)))
 	require.NoError(t, err)
 
 	stream, err := job.Events(ctx)
@@ -110,9 +111,16 @@ func verifyJobEventMinionReturn(t *testing.T, h Harness) {
 func recvUntil(t *testing.T, ctx context.Context, stream brine.EventStream, matches func(brine.Event) bool) brine.Event {
 	t.Helper()
 
+	recvCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	for {
-		event, err := stream.Recv(ctx)
-		require.NoError(t, err)
+		event, err := stream.Recv(recvCtx)
+		if err != nil {
+			require.NoError(t, recvCtx.Err(), "timed out waiting for matching event")
+			require.NoError(t, err)
+		}
+
 		if matches(event) {
 			return event
 		}

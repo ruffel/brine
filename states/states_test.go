@@ -1,6 +1,7 @@
 package states
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/transports/mock"
 	"github.com/stretchr/testify/assert"
+	testifymock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -139,6 +142,48 @@ func TestDecodeRejectsMalformedStateReturns(t *testing.T) {
 		_, err := DecodeMinion(brine.MinionResult{Minion: "minion-1", RetCode: 1, Return: raw})
 		require.ErrorIs(t, err, ErrInvalidStateReturn)
 	}
+}
+
+func TestRunSLSPreservesTypedResultWithExecutionError(t *testing.T) {
+	t.Parallel()
+
+	transport := mock.New()
+	transport.Caps = brine.NewCapabilities(brine.CapSynchronousRun, brine.CapLocalRun)
+	transport.On("Run", testifymock.Anything, testifymock.Anything).
+		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
+			success := json.RawMessage(`{"state_|-ok_|-ok_|-test":{"__id__":"ok","name":"ok","result":true,"changes":{},"comment":"ok"}}`)
+			failure := json.RawMessage(`{"state_|-bad_|-bad_|-test":{"__id__":"bad","name":"bad","result":false,"changes":{},"comment":"bad"}}`)
+			result := &brine.Result{
+				JID:      "jid-1",
+				Request:  &req,
+				Expected: []string{"minion-1", "minion-2"},
+				ByMinion: map[string]brine.MinionResult{
+					"minion-1": {Minion: "minion-1", JID: "jid-1", Return: success, Raw: success},
+					"minion-2": {
+						Minion:  "minion-2",
+						JID:     "jid-1",
+						RetCode: 1,
+						Return:  failure,
+						Raw:     failure,
+						Failure: &brine.Failure{Kind: brine.FailureUnknown, Message: "state return contains failed state"},
+					},
+				},
+			}
+
+			return result, nil
+		})
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+
+	result, err := RunSLS(context.Background(), client, brine.Glob("*"), "brine.test")
+	require.Error(t, err)
+	require.NotNil(t, result)
+	var executionError *brine.ExecutionError
+	require.ErrorAs(t, err, &executionError)
+	assert.Equal(t, []string{"minion-2"}, result.FailedNodes)
+	assert.Equal(t, 1, result.Summaries["minion-1"].Succeeded)
+	assert.Equal(t, 1, result.Summaries["minion-2"].Failed)
 }
 
 func TestMalformedStateRetryPredicate(t *testing.T) {

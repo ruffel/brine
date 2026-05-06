@@ -1,5 +1,6 @@
 # Justfile for brine
 
+COMPOSE := "test/integration/scripts/compose.sh"
 COMPOSE_FILE := "test/integration/compose.yaml"
 
 # Default recipe
@@ -27,7 +28,7 @@ tidy:
 
 # Start the Salt integration environment and wait until ready
 integration-up:
-    docker compose -f {{COMPOSE_FILE}} up -d --build --force-recreate
+    {{COMPOSE}} -f {{COMPOSE_FILE}} up -d --build --force-recreate
     test/integration/scripts/wait-ready.sh
 
 # Run REST transport contract tests against the Salt integration environment
@@ -54,7 +55,7 @@ integration-capture-rest:
 
 # Stop and remove the Salt integration environment
 integration-down:
-    docker compose -f {{COMPOSE_FILE}} down -v
+    {{COMPOSE}} -f {{COMPOSE_FILE}} down -v
 
 # Check for clean git state after running fmt and tidy
 check-clean: fmt tidy

@@ -7,7 +7,9 @@ package modules
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/ruffel/brine"
 )
@@ -19,6 +21,39 @@ type Result[T any] struct {
 	FailedNodes  []string
 	MissingNodes []string
 	Raw          *brine.Result
+}
+
+// DecodeError reports that one minion return could not be projected into a
+// typed module helper result.
+type DecodeError struct {
+	Minion   string
+	Function string
+	Raw      json.RawMessage
+	Err      error
+}
+
+func (e *DecodeError) Error() string {
+	if e == nil {
+		return "brine/modules: decode error"
+	}
+
+	if e.Function != "" && e.Minion != "" {
+		return fmt.Sprintf("brine/modules: decode %s return from %q: %v", e.Function, e.Minion, e.Err)
+	}
+
+	if e.Minion != "" {
+		return fmt.Sprintf("brine/modules: decode return from %q: %v", e.Minion, e.Err)
+	}
+
+	return fmt.Sprintf("brine/modules: decode return: %v", e.Err)
+}
+
+func (e *DecodeError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+
+	return e.Err
 }
 
 // RunLocal executes req and decodes each returned minion body into T. If Salt
@@ -41,14 +76,38 @@ func RunLocal[T any](ctx context.Context, client *brine.Client, req brine.Reques
 		return nil, err
 	}
 
-	decoded, decodeErr := brine.DecodeByMinion[T](result)
+	decoded, decodeErr := decodeByMinion[T](result)
 	out := fromResult(decoded, result)
 
-	if decodeErr != nil {
-		return out, decodeErr
+	return out, errors.Join(err, decodeErr)
+}
+
+func decodeByMinion[T any](result *brine.Result) (map[string]T, error) {
+	nodes := make(map[string]T, len(result.ByMinion))
+	errs := make([]error, 0)
+	function := ""
+	if result.Request != nil {
+		function = result.Request.Function
 	}
 
-	return out, err
+	for _, minion := range result.Returned() {
+		ret := result.ByMinion[minion]
+		var value T
+		if err := ret.Decode(&value); err != nil {
+			errs = append(errs, &DecodeError{
+				Minion:   minion,
+				Function: function,
+				Raw:      append([]byte(nil), ret.Return...),
+				Err:      err,
+			})
+
+			continue
+		}
+
+		nodes[minion] = value
+	}
+
+	return nodes, errors.Join(errs...)
 }
 
 func fromResult[T any](nodes map[string]T, result *brine.Result) *Result[T] {

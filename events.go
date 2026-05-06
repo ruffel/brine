@@ -245,6 +245,13 @@ func Emit(ctx context.Context, event Event) {
 	}
 }
 
+// HasEmitter reports whether ctx carries a Brine progress/event emitter.
+func HasEmitter(ctx context.Context) bool {
+	emitter, ok := ctx.Value(emitterContextKey{}).(Emitter)
+
+	return ok && emitter != nil
+}
+
 func isTerminalEvent(event Event) bool {
 	switch event.Type {
 	case EventRequestCompleted, EventRequestFailed, EventJobCompleted, EventRetryExhausted:

@@ -14,13 +14,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os/exec"
-	"slices"
 	"strings"
-	"time"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/internal/resultaccumulator"
 )
 
 const (
@@ -334,7 +332,7 @@ func normalizeBridgeResponse(req brine.Request, response bridgeResponse, raw []b
 	}
 
 	accumulator := newBridgeAccumulator(req)
-	accumulator.raw.Write(raw)
+	accumulator.acc.AddRaw(raw)
 	for minion, item := range response.Local.ByMinion {
 		accumulator.addMinionResult(ctxWithoutEmitter(), minion, item)
 	}
@@ -343,21 +341,12 @@ func normalizeBridgeResponse(req brine.Request, response bridgeResponse, raw []b
 }
 
 type bridgeAccumulator struct {
-	req      brine.Request
-	expected []string
-	seen     map[string]struct{}
-	byMinion map[string]brine.MinionResult
-	jids     map[string]struct{}
-	raw      bytes.Buffer
+	req brine.Request
+	acc *resultaccumulator.Accumulator
 }
 
 func newBridgeAccumulator(req brine.Request) *bridgeAccumulator {
-	return &bridgeAccumulator{
-		req:      req,
-		seen:     make(map[string]struct{}),
-		byMinion: make(map[string]brine.MinionResult),
-		jids:     make(map[string]struct{}),
-	}
+	return &bridgeAccumulator{req: req, acc: resultaccumulator.New(req)}
 }
 
 func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
@@ -366,10 +355,7 @@ func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
 		return nil
 	}
 
-	if a.raw.Len() > 0 {
-		a.raw.WriteByte('\n')
-	}
-	a.raw.Write(line)
+	a.acc.AddRaw(line)
 
 	var frame bridgeFrame
 	if err := json.Unmarshal(line, &frame); err != nil {
@@ -413,60 +399,15 @@ func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
 }
 
 func (a *bridgeAccumulator) setExpected(ctx context.Context, minions []string) {
-	a.expected = append([]string(nil), minions...)
-	slices.Sort(a.expected)
-	brine.Emit(ctx, brine.NewEvent(brine.EventExpectedMinions, brine.ExpectedMinionsPayload{Minions: append([]string(nil), a.expected...)}))
+	a.acc.SetExpected(ctx, "", minions)
 }
 
 func (a *bridgeAccumulator) addMinionResult(ctx context.Context, minion string, item bridgeMinionResult) {
-	ret := normalizeBridgeMinion(a.req, minion, item)
-	if _, ok := a.seen[minion]; !ok && len(a.expected) == 0 {
-		a.expected = append(a.expected, minion)
-	}
-
-	a.seen[minion] = struct{}{}
-	a.byMinion[minion] = ret
-	if ret.JID != "" {
-		a.jids[ret.JID] = struct{}{}
-	}
-
-	brine.Emit(ctx, brine.Event{
-		Type:      brine.EventMinionReturned,
-		Timestamp: time.Now(),
-		JID:       ret.JID,
-		Minion:    minion,
-		Payload:   brine.MinionReturnedPayload{Result: ret},
-		Raw:       append([]byte(nil), ret.Raw...),
-	})
+	a.acc.AddMinion(ctx, normalizeBridgeMinion(a.req, minion, item))
 }
 
 func (a *bridgeAccumulator) result() *brine.Result {
-	expected := append([]string(nil), a.expected...)
-	slices.Sort(expected)
-
-	missing := make([]string, 0)
-	for _, minion := range expected {
-		if _, ok := a.byMinion[minion]; !ok {
-			missing = append(missing, minion)
-		}
-	}
-
-	result := &brine.Result{
-		Request:  &a.req,
-		Raw:      append([]byte(nil), a.raw.Bytes()...),
-		Expected: expected,
-		Missing:  missing,
-		ByMinion: make(map[string]brine.MinionResult, len(a.byMinion)),
-	}
-	maps.Copy(result.ByMinion, a.byMinion)
-
-	if len(a.jids) == 1 {
-		for jid := range a.jids {
-			result.JID = jid
-		}
-	}
-
-	return result
+	return a.acc.Result()
 }
 
 func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionResult) brine.MinionResult {
