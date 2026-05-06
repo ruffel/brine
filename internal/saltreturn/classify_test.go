@@ -17,9 +17,14 @@ func TestBareFalseFailure(t *testing.T) {
 		function string
 		raw      json.RawMessage
 		wantFail bool
+		wantMsg  string
 	}{
-		{name: "test ping false fails", function: "test.ping", raw: json.RawMessage(`false`), wantFail: true},
-		{name: "service false is data", function: "service.status", raw: json.RawMessage(`false`)},
+		{name: "test ping false fails", function: "test.ping", raw: json.RawMessage(`false`), wantFail: true, wantMsg: "test.ping returned false"},
+		{name: "service restart false fails", function: "service.restart", raw: json.RawMessage(`false`), wantFail: true, wantMsg: "service.restart returned false"},
+		{name: "file copy false fails", function: "file.copy", raw: json.RawMessage(`false`), wantFail: true, wantMsg: "file.copy returned false"},
+		{name: "user add false fails", function: "user.add", raw: json.RawMessage(`false`), wantFail: true, wantMsg: "user.add returned false"},
+		{name: "service status false is data", function: "service.status", raw: json.RawMessage(`false`)},
+		{name: "unknown module false is data", function: "custom.check", raw: json.RawMessage(`false`)},
 		{name: "test ping true succeeds", function: "test.ping", raw: json.RawMessage(`true`)},
 	}
 
@@ -31,6 +36,7 @@ func TestBareFalseFailure(t *testing.T) {
 			if tt.wantFail {
 				require.NotNil(t, failure)
 				assert.Equal(t, brine.FailureUnknown, failure.Kind)
+				assert.Equal(t, tt.wantMsg, failure.Message)
 
 				return
 			}

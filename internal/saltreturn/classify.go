@@ -9,14 +9,37 @@ import (
 	"github.com/ruffel/brine"
 )
 
+// bareFalseModules lists Salt execution modules where a bare false return is
+// known to indicate execution failure rather than domain data.
+var bareFalseModules = map[string]struct{}{ //nolint:gochecknoglobals // Package-level lookup table for Salt module classification.
+	"test.ping":       {},
+	"service.start":   {},
+	"service.stop":    {},
+	"service.restart": {},
+	"service.reload":  {},
+	"service.enable":  {},
+	"service.disable": {},
+	"file.copy":       {},
+	"file.rename":     {},
+	"file.move":       {},
+	"user.add":        {},
+	"user.delete":     {},
+	"group.add":       {},
+	"group.delete":    {},
+}
+
 // BareFalseFailure returns a failure for Salt functions where a bare false
 // value is known to represent failed execution rather than domain data.
 func BareFalseFailure(function string, raw json.RawMessage) *brine.Failure {
-	if !IsBareFalse(raw) || function != "test.ping" {
+	if !IsBareFalse(raw) {
 		return nil
 	}
 
-	return &brine.Failure{Kind: brine.FailureUnknown, Message: "test.ping returned false", Raw: append([]byte(nil), raw...)}
+	if _, known := bareFalseModules[function]; !known {
+		return nil
+	}
+
+	return &brine.Failure{Kind: brine.FailureUnknown, Message: function + " returned false", Raw: append([]byte(nil), raw...)}
 }
 
 // IsBareFalse reports whether raw is the JSON boolean false.
