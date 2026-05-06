@@ -194,7 +194,10 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 	}
 
 	args := append([]string(nil), t.args...)
-	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
+	cmdCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
 	cmd.Dir = t.dir
 	cmd.Env = append(cmd.Environ(), t.env...)
 	cmd.Stdin = bytes.NewReader(input)
@@ -216,6 +219,7 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 	scanner.Buffer(make([]byte, initialBridgeFrameBufferBytes), maxBridgeFrameBytes)
 	for scanner.Scan() {
 		if err := accumulator.apply(ctx, scanner.Bytes()); err != nil {
+			cancel()
 			_ = cmd.Wait()
 
 			return nil, err
@@ -223,6 +227,7 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 	}
 
 	if err := scanner.Err(); err != nil {
+		cancel()
 		_ = cmd.Wait()
 
 		return nil, brine.NewTransportError("python bridge stdout", err)
