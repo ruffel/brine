@@ -445,8 +445,6 @@ func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionRe
 	switch {
 	case item.Error != "":
 		ret.Failure = &brine.Failure{Kind: brine.FailureMinionException, Message: item.Error, Raw: append([]byte(nil), item.Raw...)}
-	case item.RetCode != 0:
-		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", item.RetCode), Raw: append([]byte(nil), item.Raw...)}
 	case falseFailure != nil:
 		ret.RetCode = 1
 		ret.Failure = falseFailure
@@ -454,7 +452,11 @@ func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionRe
 		ret.Failure = saltreturn.StateFailure(req.Function, item.Return)
 		if ret.Failure != nil {
 			ret.RetCode = 1
+		} else {
+			ret.RetCode = 0
 		}
+	case item.RetCode != 0:
+		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", item.RetCode), Raw: append([]byte(nil), item.Raw...)}
 	}
 
 	return ret

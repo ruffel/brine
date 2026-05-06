@@ -26,6 +26,21 @@ func TestRunLocalSuccess(t *testing.T) {
 	assert.JSONEq(t, `true`, string(result.ByMinion["minion-1"].Return))
 }
 
+func TestRunLocalStateSuccessIgnoresBridgeRetcode(t *testing.T) {
+	t.Parallel()
+
+	response := `{"local":{"by_minion":{"minion-1":{"retcode":2,"return":{` +
+		`"test_|-ok_|-ok_|-succeed_without_changes":{` +
+		`"__id__":"ok","name":"ok","result":true,"changes":{},"comment":"Success!"` +
+		`}}}}}}`
+	transport := newHelperTransport(t, response)
+	result, err := transport.Run(context.Background(), brine.Local("state.sls", brine.List("minion-1"), brine.Args("brine.success")))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.Zero(t, result.ByMinion["minion-1"].RetCode)
+	assert.Nil(t, result.ByMinion["minion-1"].Failure)
+}
+
 func TestRunLocalStateFailure(t *testing.T) {
 	t.Parallel()
 
