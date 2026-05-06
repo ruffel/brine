@@ -310,10 +310,13 @@ Acceptance criteria:
 ## Phase 5.5: Transport contract/parity suite (`brinetest`)
 
 Implementation status: implemented for the first REST parity gate. The suite now
-covers transport info, sync local/runner/wheel calls, state calls, raw lowstate,
-async wait including success and failure idempotency, event stream/minion-return
-normalization, target resolution, and unsupported-capability contracts. Future
-transports should run it from day one.
+covers transport info, sync local/runner/wheel calls, foundational local
+`cmd.run`, state calls, raw lowstate, async wait including success and failure
+idempotency, event stream opening/matching, target resolution, and
+unsupported-capability contracts. Minion-return event normalization remains
+capability-gated and unit-covered for REST-supported Salt tag shapes, but REST no
+longer advertises guaranteed `CapStreamingReturns` because live Salt event tags
+are timing/version dependent.
 
 Goal: lock down Brine's transport-neutral semantics before adding another real
 transport.
@@ -357,8 +360,8 @@ Deliverables:
 Acceptance criteria:
 
 - Contract tests skip when required capabilities are absent.
-- REST passes the info, sync, state, lowstate, async wait, event, target, and
-  unsupported-capability contracts in the compose harness.
+- REST passes the info, sync, state, lowstate, async wait, event stream, target,
+  and unsupported-capability contracts in the compose harness.
 - Event contracts are stable enough for opt-in integration runs and do not make
   `go test ./...` require Docker.
 - The contract suite becomes the acceptance gate for Python transport parity.
@@ -481,10 +484,11 @@ Acceptance criteria:
 
 ## Phase 8: Migration of existing callers
 
-Implementation status: migration guidance and compile-time examples are in place.
-This repository does not currently contain product process-wrapper callers to
-replace directly; downstream callers can use `MIGRATION.md` and the migration
-examples as the migration checklist.
+Implementation status: migration guidance, compile-time examples, and
+foundational typed module helpers are in place. This repository does not
+currently contain product process-wrapper callers to replace directly; downstream
+callers can use `MIGRATION.md`, `modules`, and the migration examples as the
+migration checklist.
 
 Deliverables:
 
@@ -568,12 +572,13 @@ Recently completed:
 - [x] Implement MVP Python command bridge for local synchronous execution.
 - [x] Add Docker-backed Python `brinetest` contract recipe.
 - [x] Add foundational local execution examples for service status and command output.
+- [x] Add foundational typed helpers for cmd, service, and network execution modules.
 - [x] Start Phase 7 request middleware and orchestration integration examples.
 - [x] Start Phase 8 migration of existing callers.
 
 Next:
 
-- [ ] Run `just contract-rest` and `just contract-python` against the live compose harness before release or handoff.
+- [x] Run `just contract-rest` and `just contract-python` against the live compose harness before release or handoff.
 - [ ] Begin downstream caller migration using `MIGRATION.md`, or select one of the intentionally deferred REST/Python capabilities below if a concrete workflow requires it.
 
 Intentionally deferred until needed:

@@ -80,7 +80,6 @@ func New(config Config) (*Transport, error) {
 			brine.CapEvents,
 			brine.CapJobLookup,
 			brine.CapTargetResolution,
-			brine.CapStreamingReturns,
 		),
 	}, nil
 }

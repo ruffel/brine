@@ -26,13 +26,13 @@ Override with `BRINE_SALT_VERSION` if a different Salt `v3006` patch level is re
 Start the environment:
 
 ```sh
-test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build
+test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build --force-recreate
 ```
 
 Start with a specific Salt patch version:
 
 ```sh
-BRINE_SALT_VERSION=3006.9 test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build
+BRINE_SALT_VERSION=3006.9 test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build --force-recreate
 ```
 
 The `compose.sh` wrapper auto-detects Docker Compose v2 (`docker compose`) or the legacy standalone `docker-compose`. You can override detection with:

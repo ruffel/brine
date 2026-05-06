@@ -80,6 +80,25 @@ REST remains the production-oriented backend for the current Salt `v3006` localh
 
 Use `just contract-rest` and `just contract-python` against the Docker Salt topology to verify advertised transport behavior.
 
+## Foundational module helpers
+
+The `modules` package provides thin typed helpers for common Salt execution
+modules without adding product policy. They work through the same `Client` API as
+manual `brine.Local` calls, so they can run over REST, Python command bridge, or
+mock transports when the transport advertises local synchronous execution.
+
+Current helpers cover:
+
+- `modules.CmdRun` for `cmd.run` string output and retcodes;
+- `modules.ServiceStatus` for `service.status` maps;
+- `modules.NetworkInterfaces` for a stable subset of `network.interfaces`;
+- `modules.NetworkIPAddrs` for `network.ip_addrs`;
+- `modules.NetworkHostnames` for `network.get_hostname`.
+
+The helpers return `*modules.Result[T]`, which includes decoded per-minion data,
+retcodes, failed/missing minions, and the raw `*brine.Result` for callers that
+need lower-level Salt details.
+
 ## Middleware and orchestration boundaries
 
 Use `brine.WithMiddleware` for caller-owned synchronous `Run` policy such as

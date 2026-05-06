@@ -27,7 +27,7 @@ tidy:
 
 # Start the Salt integration environment
 integration-up:
-    {{COMPOSE}} -f test/integration/compose.yaml up -d --build
+    {{COMPOSE}} -f test/integration/compose.yaml up -d --build --force-recreate
 
 # Wait for the Salt integration environment to be ready
 integration-ready:
