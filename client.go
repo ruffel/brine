@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 )
 
 type clientConfig struct {
@@ -187,7 +188,7 @@ type runOutcome struct {
 func recoverRun(outcome *runOutcome, run func(), onPanic func(error)) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			outcome.err = fmt.Errorf("brine: panic during Run: %v", recovered)
+			outcome.err = fmt.Errorf("brine: panic during Run: %v\n%s", recovered, debug.Stack())
 			onPanic(outcome.err)
 		}
 	}()
