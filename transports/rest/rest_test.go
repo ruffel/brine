@@ -701,6 +701,59 @@ func TestRunRawLowstatePayloadIncludesClient(t *testing.T) {
 	assert.Equal(t, []any{"minion-1", "minion-2"}, captured[0]["tgt"])
 }
 
+func TestRunRawLowstateMultipleEntriesPreservesAllReturns(t *testing.T) {
+	t.Parallel()
+
+	req := lowstate.Request(
+		lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"},
+		lowstate.Entry{Client: "runner", Fun: "jobs.active"},
+	)
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&captured))
+		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true},{}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), req)
+	require.NoError(t, err)
+	require.True(t, result.OK())
+
+	var values []map[string]any
+	require.NoError(t, result.DecodeScalar(&values))
+	assert.Equal(t, []map[string]any{{"minion-1": true}, {}}, values)
+	require.Len(t, captured, 2)
+	assert.Equal(t, "local", captured[0]["client"])
+	assert.Equal(t, "runner", captured[1]["client"])
+}
+
+func TestRunRawLowstateMultipleEntriesMarksScalarFailure(t *testing.T) {
+	t.Parallel()
+
+	req := lowstate.Request(
+		lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"},
+		lowstate.Entry{Client: "runner", Fun: "bad.runner"},
+	)
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true},{"error":"boom"}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result.Failure)
+	assert.False(t, result.OK())
+	assert.Equal(t, brine.FailureMalformed, result.Failure.Kind)
+}
+
 func TestPAMAuthRetriesOnceAfterUnauthorized(t *testing.T) {
 	t.Parallel()
 
@@ -848,6 +901,69 @@ func TestResolveTarget(t *testing.T) {
 	assert.Equal(t, "local", captured[0]["client"])
 	assert.Equal(t, "test.ping", captured[0]["fun"])
 	assert.Equal(t, "*", captured[0]["tgt"])
+}
+
+func TestNewLocalJobRejectsMalformedStartResponses(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.Glob("*"))
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "malformed json", body: `{`},
+		{name: "missing return", body: `{}`},
+		{name: "empty return", body: `{"return":[]}`},
+		{name: "missing jid", body: `{"return":[{"minions":["minion-1"]}]}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := newLocalJob(nil, req, []byte(tt.body))
+			require.ErrorIs(t, err, brine.ErrProtocol)
+		})
+	}
+}
+
+func TestNormalizeJobLookupRejectsMalformedResponses(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.Glob("*"))
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "malformed json", body: `{`},
+		{name: "missing return", body: `{}`},
+		{name: "invalid local return", body: `{"return":["not-a-minion-map"]}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := normalizeJobLookup(req, "jid", []string{"minion-1"}, []byte(tt.body))
+			require.ErrorIs(t, err, brine.ErrProtocol)
+		})
+	}
+}
+
+func TestNormalizeJobLookupWrappedData(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.Glob("*"))
+	result, err := normalizeJobLookup(
+		req,
+		"jid",
+		[]string{"minion-1", "minion-2"},
+		[]byte(`{"return":[{"data":{"minion-1":true},"outputter":"nested"}]}`),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "jid", result.JID)
+	assert.Equal(t, []string{"minion-1"}, result.Returned())
+	assert.Equal(t, []string{"minion-2"}, result.Missing)
 }
 
 func TestStartLocalAsyncAndWait(t *testing.T) {

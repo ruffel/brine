@@ -147,6 +147,46 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 			assert.Contains(t, alive, minion)
 		}
 	})
+
+	t.Run("wheel scalar", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+
+		result, err := client.Run(ctx, brine.Wheel("key.list_all"))
+		require.NoError(t, err)
+
+		var keys map[string]any
+		require.NoError(t, result.DecodeScalar(&keys))
+		assert.NotEmpty(t, keys)
+	})
+}
+
+func TestIntegrationRESTDirectLocalRunMode(t *testing.T) {
+	env := brinetest.Salt(t)
+	transport, err := New(Config{
+		BaseURL:      env.URL,
+		Auth:         integrationAuth(env),
+		LocalRunMode: LocalRunModeDirect,
+	})
+	require.NoError(t, err)
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	minions := expectedMinionIDs(env.ExpectedMinions)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	result, err := client.Run(ctx, brine.Local("test.ping", brine.List(minions...)))
+	require.NoError(t, err)
+	assertReturnedMinions(t, result, minions)
+
+	pings, err := brine.DecodeByMinion[bool](result)
+	require.NoError(t, err)
+	for _, minion := range minions {
+		assert.True(t, pings[minion], "%s should return true", minion)
+	}
 }
 
 func newIntegrationClient(t *testing.T, env brinetest.SaltEnv) *brine.Client {

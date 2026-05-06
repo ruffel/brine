@@ -44,7 +44,9 @@ func normalize(req brine.Request, body []byte) (*brine.Result, error) {
 	case brine.KindRunner, brine.KindWheel:
 		normalizeScalar(result, envelope.Return[0])
 	case brine.KindLowstate:
-		normalizeScalar(result, envelope.Return[0])
+		if err := normalizeLowstateScalar(result, envelope.Return); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("rest: unsupported result kind %s", req.Kind)
 	}
@@ -157,6 +159,23 @@ func stateFailure(raw json.RawMessage) *brine.Failure {
 	return nil
 }
 
+func normalizeLowstateScalar(result *brine.Result, returns []json.RawMessage) error {
+	if len(returns) == 1 {
+		normalizeScalar(result, returns[0])
+
+		return nil
+	}
+
+	raw, err := json.Marshal(returns)
+	if err != nil {
+		return brine.NewProtocolError("", err)
+	}
+
+	normalizeScalar(result, raw)
+
+	return nil
+}
+
 func normalizeScalar(result *brine.Result, raw json.RawMessage) {
 	result.Scalar = append([]byte(nil), raw...)
 
@@ -172,6 +191,15 @@ func isFailureScalar(raw json.RawMessage) bool {
 		_, hasException := body["exception"]
 
 		return hasError || hasException
+	}
+
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err == nil {
+		for _, item := range items {
+			if isFailureScalar(item) {
+				return true
+			}
+		}
 	}
 
 	return false
