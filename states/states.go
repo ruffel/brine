@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/internal/saltreturn"
+	"github.com/ruffel/brine/transportkit"
 )
 
 // ErrInvalidStateReturn matches Salt state returns that cannot be decoded.
@@ -190,12 +190,12 @@ func (s State) NoOp() bool { return s.Succeeded() && !s.Changed() }
 
 // IsStateRequest reports whether req invokes a Salt state function.
 func IsStateRequest(req brine.Request) bool {
-	return req.Kind == brine.KindLocal && saltreturn.IsStateFunction(req.Function)
+	return req.Kind == brine.KindLocal && transportkit.IsStateFunction(req.Function)
 }
 
 // IsMalformedStateReturn reports whether raw has a known malformed state-return shape.
 func IsMalformedStateReturn(raw json.RawMessage) bool {
-	return saltreturn.IsMalformedState(raw)
+	return transportkit.IsMalformedState(raw)
 }
 
 // IsMalformed reports whether raw has a known malformed state-return shape.

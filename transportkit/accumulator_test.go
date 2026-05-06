@@ -1,4 +1,4 @@
-package resultaccumulator_test
+package transportkit_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/internal/resultaccumulator"
+	"github.com/ruffel/brine/transportkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ func TestAccumulatorBuildsResultAndEmitsProgress(t *testing.T) {
 	recorder := &eventRecorder{}
 	ctx := brine.WithEmitter(context.Background(), recorder)
 	req := brine.Local("test.ping", brine.Glob("*"))
-	acc := resultaccumulator.New(req)
+	acc := transportkit.NewAccumulator(req)
 
 	acc.AddRaw(json.RawMessage(`{"type":"minions"}`))
 	acc.SetExpected(ctx, "jid-1", []string{"minion-2", "minion-1"})
@@ -48,7 +48,7 @@ func TestAccumulatorReplacesDuplicateReturnButEmitsOnce(t *testing.T) {
 
 	recorder := &eventRecorder{}
 	ctx := brine.WithEmitter(context.Background(), recorder)
-	acc := resultaccumulator.New(brine.Local("cmd.run", brine.List("minion-1")))
+	acc := transportkit.NewAccumulator(brine.Local("cmd.run", brine.List("minion-1")))
 
 	acc.AddMinion(ctx, brine.MinionResult{Minion: "minion-1", RetCode: 0, Return: json.RawMessage(`"old"`)})
 	acc.AddMinion(ctx, brine.MinionResult{Minion: "minion-1", RetCode: 0, Return: json.RawMessage(`"new"`)})
@@ -70,7 +70,7 @@ func TestAccumulatorReplacesDuplicateReturnButEmitsOnce(t *testing.T) {
 func TestAccumulatorResultWithExecutionError(t *testing.T) {
 	t.Parallel()
 
-	acc := resultaccumulator.New(brine.Local("cmd.run", brine.List("minion-1")))
+	acc := transportkit.NewAccumulator(brine.Local("cmd.run", brine.List("minion-1")))
 	acc.SetExpected(context.Background(), "jid-1", []string{"minion-1"})
 	acc.AddMinion(context.Background(), brine.MinionResult{
 		Minion:  "minion-1",

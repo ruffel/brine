@@ -1,10 +1,11 @@
-package saltreturn
+package transportkit_test
 
 import (
 	"encoding/json"
 	"testing"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/transportkit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,7 @@ func TestBareFalseFailure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			failure := BareFalseFailure(tt.function, tt.raw)
+			failure := transportkit.BareFalseFailure(tt.function, tt.raw)
 			if tt.wantFail {
 				require.NotNil(t, failure)
 				assert.Equal(t, brine.FailureUnknown, failure.Kind)
@@ -67,7 +68,7 @@ func TestStateFailure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			failure := StateFailure("state.sls", tt.raw)
+			failure := transportkit.StateFailure("state.sls", tt.raw)
 			require.NotNil(t, failure)
 			assert.Equal(t, tt.kind, failure.Kind)
 		})
@@ -92,7 +93,7 @@ func TestScalarFailure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			failure := ScalarFailure(tt.raw)
+			failure := transportkit.ScalarFailure(tt.raw)
 			require.NotNil(t, failure)
 			assert.Equal(t, tt.kind, failure.Kind)
 		})

@@ -1,4 +1,4 @@
-package resultaccumulator
+package transportkit
 
 import (
 	"bytes"
@@ -28,8 +28,8 @@ type Accumulator struct {
 	raw      bytes.Buffer
 }
 
-// New constructs an Accumulator for req.
-func New(req brine.Request) *Accumulator {
+// NewAccumulator constructs an Accumulator for req.
+func NewAccumulator(req brine.Request) *Accumulator {
 	return &Accumulator{
 		req:      req,
 		byMinion: make(map[string]brine.MinionResult),

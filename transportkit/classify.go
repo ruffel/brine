@@ -1,5 +1,4 @@
-// Package saltreturn classifies common Salt return payloads.
-package saltreturn
+package transportkit
 
 import (
 	"encoding/json"
