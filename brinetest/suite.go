@@ -20,7 +20,7 @@ const (
 	CategoryLowstate    = "lowstate"
 	CategoryUnsupported = "unsupported"
 
-	initialContractCapacity = 29
+	initialContractCapacity = 33
 )
 
 // StateNames names deterministic test states available to contract tests.
@@ -38,6 +38,14 @@ type Harness struct {
 	Minions              []string
 	States               StateNames
 	PartialFailedMinions []string
+
+	// FakeMinion is a minion ID that does not exist in the Salt environment.
+	// When set, contracts that exercise missing-minion semantics are enabled.
+	FakeMinion string
+
+	// StoppedService is the name of a service known to be stopped. When set,
+	// contracts that exercise FullReturn semantics are enabled.
+	StoppedService string
 }
 
 // TestCase defines one transport-neutral behavior contract.
@@ -85,6 +93,7 @@ func AllContracts() []TestCase {
 	contracts = append(contracts, targetContracts()...)
 	contracts = append(contracts, lowstateContracts()...)
 	contracts = append(contracts, unsupportedContracts()...)
+	contracts = append(contracts, failureContracts()...)
 	validateContracts(contracts)
 
 	return contracts
