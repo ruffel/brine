@@ -294,6 +294,34 @@ func TestSubscribeReceivesLargeSSEEvent(t *testing.T) {
 	assert.Len(t, payload.Result.Return, len(large)+2)
 }
 
+func TestEventMatchesFilterUsesTagSegmentBoundary(t *testing.T) {
+	t.Parallel()
+
+	event := brine.Event{JID: "111", Minion: "minion-1"}
+	tests := []struct {
+		name      string
+		tag       string
+		filterTag string
+		want      bool
+	}{
+		{name: "exact tag", tag: "salt/job/111", filterTag: "salt/job/111", want: true},
+		{name: "child segment", tag: "salt/job/111/ret/minion-1", filterTag: "salt/job/111", want: true},
+		{name: "trailing slash prefix", tag: "salt/job/111/ret/minion-1", filterTag: "salt/job/111/", want: true},
+		{name: "sibling jid", tag: "salt/job/111/ret/minion-1", filterTag: "salt/job/11", want: false},
+		{name: "partial segment", tag: "salt/job/111-extra", filterTag: "salt/job/111", want: false},
+		{name: "empty filter", tag: "salt/job/111/ret/minion-1", filterTag: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := eventMatchesFilter(event, brine.EventFilter{Tags: []string{tt.filterTag}}, tt.tag)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestEventStreamCloseIsIdempotentEnough(t *testing.T) {
 	t.Parallel()
 

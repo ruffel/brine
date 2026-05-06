@@ -399,12 +399,28 @@ func eventMatchesFilter(event brine.Event, filter brine.EventFilter, tag string)
 	}
 
 	for _, filterTag := range filter.Tags {
-		if tag == filterTag || strings.HasPrefix(tag, filterTag) {
+		if eventTagMatchesFilter(tag, filterTag) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func eventTagMatchesFilter(tag string, filterTag string) bool {
+	if filterTag == "" {
+		return false
+	}
+
+	if tag == filterTag {
+		return true
+	}
+
+	if !strings.HasPrefix(tag, filterTag) {
+		return false
+	}
+
+	return strings.HasSuffix(filterTag, "/") || tag[len(filterTag)] == '/'
 }
 
 var _ brine.EventStream = (*eventStream)(nil)
