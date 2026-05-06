@@ -1,10 +1,11 @@
 // Package python implements a minimal Salt Python command-bridge transport.
 //
-// The MVP transport starts a helper process per request and exchanges a single
-// JSON request/response over stdin/stdout. It intentionally advertises a narrow
-// capability set: synchronous local execution and responsive target resolution.
-// Async jobs, global events, runner calls, and wheel calls return Brine's normal
-// UnsupportedError through the embedded UnsupportedTransport.
+// The transport starts a helper process per request and exchanges a single JSON
+// request/response over stdin/stdout. It intentionally advertises a narrow
+// capability set: synchronous local execution, synchronous runner execution, and
+// responsive target resolution. Async jobs, global events, wheel calls, and raw
+// lowstate requests return Brine's normal UnsupportedError through the embedded
+// UnsupportedTransport.
 package python
 
 import (
