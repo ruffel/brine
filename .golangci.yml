@@ -129,12 +129,21 @@ linters:
     - path: 'examples/'
       linters:
         - forbidigo         # It's a CLI example, we want to print to STDOUT.
-        - gochecknoglobals  # CLI flags and styles are pragmatic globals here
+        - gochecknoglobals  # CLI flags and styles are pragmatic globals here.
+    - path: 'cmd/brine-compatcheck/'
+      linters:
+        - gochecknoglobals  # CLI styles are pragmatic globals here.
+        - mnd               # CLI presentation widths are clearer inline.
+        - predeclared       # CLI-local names are constrained to short helpers.
+        - unused            # Compatibility parser helpers are retained for provider output.
     - path: '(.+)_test\.go'
       linters:
+        - dupl               # Table-driven transport tests intentionally share fixture setup.
         - forcetypeassert
         - funlen
+        - goconst            # Repeated Salt wire values keep test fixtures readable.
         - gosec              # Fixture tests read table-driven files from this repository.
+        - testifylint        # Existing tests use require/assert inside HTTP fixtures.
         - wrapcheck
     - path: 'states/states\.go'
       linters:

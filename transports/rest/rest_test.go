@@ -491,19 +491,52 @@ func TestRunRunnerScalar(t *testing.T) {
 func TestRunScalarFailureMarksResultNotOK(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte(`{"return":[{"error":"boom"}]}`))
-	}))
-	defer server.Close()
+	tests := []struct {
+		name string
+		body string
+		kind brine.FailureKind
+	}{
+		{
+			name: "top-level error",
+			body: `{"return":[{"error":"boom"}]}`,
+			kind: brine.FailureMalformed,
+		},
+		{
+			name: "runner success false",
+			body: `{"return":[{"success":false,"data":{"return":true}}]}`,
+			kind: brine.FailureUnknown,
+		},
+		{
+			name: "runner retcode",
+			body: `{"return":[{"data":{"retcode":2,"return":"failed"}}]}`,
+			kind: brine.FailureRetCode,
+		},
+		{
+			name: "nested exception",
+			body: `{"return":[{"data":{"return":[{"exception":"boom"}]}}]}`,
+			kind: brine.FailureMinionException,
+		},
+	}
 
-	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := transport.Run(context.Background(), brine.Wheel("key.list_all"))
-	require.NoError(t, err)
-	require.NotNil(t, result.Failure)
-	assert.False(t, result.OK())
-	assert.Equal(t, brine.FailureMalformed, result.Failure.Kind)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+			require.NoError(t, err)
+
+			result, err := transport.Run(context.Background(), brine.Wheel("key.list_all"))
+			require.NoError(t, err)
+			require.NotNil(t, result.Failure)
+			assert.False(t, result.OK())
+			assert.Equal(t, tt.kind, result.Failure.Kind)
+		})
+	}
 }
 
 func TestRunWheelScalarPayload(t *testing.T) {

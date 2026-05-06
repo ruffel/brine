@@ -63,11 +63,11 @@ func verifyAsyncBackedRunScopedReturns(t *testing.T, h Harness) {
 	require.NotEmpty(t, result.JID)
 	assertReturnedMinions(t, result, h.Minions)
 
-	assert.Equal(t, result.JID, recorder.expectedJID)
+	assert.Equal(t, recorder.expectedJID, result.JID)
 	assert.ElementsMatch(t, h.Minions, recorder.expected)
 	assert.ElementsMatch(t, h.Minions, recorder.returned)
 	for _, eventJID := range recorder.returnJIDs {
-		assert.Equal(t, result.JID, eventJID)
+		assert.Equal(t, eventJID, result.JID)
 	}
 }
 

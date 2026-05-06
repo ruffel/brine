@@ -179,28 +179,81 @@ func normalizeLowstateScalar(result *brine.Result, returns []json.RawMessage) er
 func normalizeScalar(result *brine.Result, raw json.RawMessage) {
 	result.Scalar = append([]byte(nil), raw...)
 
-	if isFailureScalar(raw) {
-		result.Failure = &brine.Failure{Kind: brine.FailureMalformed, Message: "scalar response indicates failure", Raw: append([]byte(nil), raw...)}
+	if failure := scalarFailure(raw); failure != nil {
+		result.Failure = failure
 	}
 }
 
-func isFailureScalar(raw json.RawMessage) bool {
-	var body map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &body); err == nil {
-		_, hasError := body["error"]
-		_, hasException := body["exception"]
+func scalarFailure(raw json.RawMessage) *brine.Failure {
+	return scalarFailureFromRoot(raw, raw)
+}
 
-		return hasError || hasException
+func scalarFailureFromRoot(root json.RawMessage, current json.RawMessage) *brine.Failure {
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(current, &body); err == nil {
+		return scalarMapFailure(root, body)
 	}
 
 	var items []json.RawMessage
-	if err := json.Unmarshal(raw, &items); err == nil {
-		for _, item := range items {
-			if isFailureScalar(item) {
-				return true
+	if err := json.Unmarshal(current, &items); err != nil {
+		return nil
+	}
+
+	for _, item := range items {
+		if failure := scalarFailureFromRoot(root, item); failure != nil {
+			return failure
+		}
+	}
+
+	return nil
+}
+
+func scalarMapFailure(root json.RawMessage, body map[string]json.RawMessage) *brine.Failure {
+	if _, hasError := body["error"]; hasError {
+		return &brine.Failure{Kind: brine.FailureMalformed, Message: "scalar response contains error", Raw: append([]byte(nil), root...)}
+	}
+
+	if _, hasException := body["exception"]; hasException {
+		return &brine.Failure{Kind: brine.FailureMinionException, Message: "scalar response contains exception", Raw: append([]byte(nil), root...)}
+	}
+
+	if success, ok := scalarBool(body["success"]); ok && !success {
+		return &brine.Failure{Kind: brine.FailureUnknown, Message: "scalar response reported success=false", Raw: append([]byte(nil), root...)}
+	}
+
+	if retcode, ok := scalarInt(body["retcode"]); ok && retcode != 0 {
+		return &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("scalar response retcode %d", retcode), Raw: append([]byte(nil), root...)}
+	}
+
+	return nestedScalarFailure(root, body)
+}
+
+func nestedScalarFailure(root json.RawMessage, body map[string]json.RawMessage) *brine.Failure {
+	for _, key := range []string{"data", "return", "ret"} {
+		if nested := body[key]; len(nested) > 0 {
+			if failure := scalarFailureFromRoot(root, nested); failure != nil {
+				return failure
 			}
 		}
 	}
 
-	return false
+	return nil
+}
+
+func scalarBool(raw json.RawMessage) (bool, bool) {
+	var value bool
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, false
+	}
+
+	return value, true
+}
+
+func scalarInt(raw json.RawMessage) (int, bool) {
+	var value int
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return 0, false
+	}
+
+	return value, true
 }

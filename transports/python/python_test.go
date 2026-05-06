@@ -54,6 +54,45 @@ func TestRunRunnerScalar(t *testing.T) {
 	assert.Equal(t, []string{"minion-1", "minion-2"}, alive)
 }
 
+func TestRunRunnerScalarFailures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		response string
+		kind     brine.FailureKind
+	}{
+		{
+			name:     "top-level error",
+			response: `{"type":"scalar","scalar":{"error":"boom"}}`,
+			kind:     brine.FailureMalformed,
+		},
+		{
+			name:     "success false",
+			response: `{"type":"scalar","scalar":{"success":false,"data":{"return":true}}}`,
+			kind:     brine.FailureUnknown,
+		},
+		{
+			name:     "nested retcode",
+			response: `{"type":"scalar","scalar":{"data":{"retcode":2,"return":"failed"}}}`,
+			kind:     brine.FailureRetCode,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transport := newHelperTransport(t, tt.response)
+			result, err := transport.Run(context.Background(), brine.Runner("state.orchestrate"))
+			require.NoError(t, err)
+			require.NotNil(t, result.Failure)
+			assert.False(t, result.OK())
+			assert.Equal(t, tt.kind, result.Failure.Kind)
+		})
+	}
+}
+
 func TestRunRejectsUnsupportedKinds(t *testing.T) {
 	t.Parallel()
 
