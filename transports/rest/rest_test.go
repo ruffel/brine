@@ -676,6 +676,52 @@ func TestPAMAuthLogin(t *testing.T) {
 	assert.Equal(t, 1, loginCount)
 }
 
+func TestPAMAuthSharesConcurrentLogin(t *testing.T) {
+	t.Parallel()
+
+	loginStarted := make(chan struct{})
+	releaseLogin := make(chan struct{})
+	loginCount := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/login":
+			loginCount++
+			if loginCount == 1 {
+				close(loginStarted)
+			}
+			<-releaseLogin
+			_, _ = writer.Write([]byte(`{"return":[{"token":"abc","expire":4102444800}]}`))
+		case "/":
+			assert.Equal(t, "abc", request.Header.Get("X-Auth-Token"))
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		default:
+			assert.Failf(t, "unexpected path", "path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi"), LocalRunMode: LocalRunModeDirect})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	errCh := make(chan error, 2)
+	go func() {
+		_, err := transport.Run(ctx, brine.Local("test.ping", brine.Glob("*")))
+		errCh <- err
+	}()
+	<-loginStarted
+	go func() {
+		_, err := transport.Run(ctx, brine.Local("test.ping", brine.Glob("*")))
+		errCh <- err
+	}()
+
+	close(releaseLogin)
+	require.NoError(t, <-errCh)
+	require.NoError(t, <-errCh)
+	assert.Equal(t, 1, loginCount)
+}
+
 func TestRESTPayloadTargetsAndOptions(t *testing.T) {
 	t.Parallel()
 

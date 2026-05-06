@@ -13,9 +13,13 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
+	"golang.org/x/sync/singleflight"
 )
 
-const nanosecondsPerSecond = 1_000_000_000
+const (
+	eauthLoginKey        = "login"
+	nanosecondsPerSecond = 1_000_000_000
+)
 
 // NoAuth disables REST authentication. It is intended for trusted localhost
 // deployments or test endpoints that do not require rest_cherrypy tokens.
@@ -45,6 +49,7 @@ type EAuth struct {
 	EAuth    string
 
 	mu     sync.Mutex
+	group  singleflight.Group
 	token  string
 	expire time.Time
 }
@@ -56,26 +61,38 @@ func PAMAuth(username string, password string) *EAuth {
 
 // Token implements Authenticator.
 func (a *EAuth) Token(ctx context.Context, client *http.Client, baseURL string) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	if a.token != "" && time.Now().Before(a.expire.Add(-time.Minute)) {
-		return a.token, nil
+	if token, ok := a.cachedToken(); ok {
+		return token, nil
 	}
 
-	token, expire, err := login(ctx, client, baseURL, loginRequest{
-		Username: a.Username,
-		Password: a.Password,
-		EAuth:    a.EAuth,
+	value, err, _ := a.group.Do(eauthLoginKey, func() (any, error) {
+		if token, ok := a.cachedToken(); ok {
+			return token, nil
+		}
+
+		token, expire, err := login(ctx, client, baseURL, loginRequest{
+			Username: a.Username,
+			Password: a.Password,
+			EAuth:    a.EAuth,
+		})
+		if err != nil {
+			return "", err
+		}
+
+		a.cacheToken(token, expire)
+
+		return token, nil
 	})
 	if err != nil {
 		return "", err
 	}
 
-	a.token = token
-	a.expire = expire
+	token, ok := value.(string)
+	if !ok {
+		return "", errors.New("rest: eauth login returned non-string token")
+	}
 
-	return a.token, nil
+	return token, nil
 }
 
 // InvalidateToken clears the cached Salt API token so the next request logs in again.
@@ -85,6 +102,26 @@ func (a *EAuth) InvalidateToken() {
 
 	a.token = ""
 	a.expire = time.Time{}
+	a.group.Forget(eauthLoginKey)
+}
+
+func (a *EAuth) cachedToken() (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.token == "" || !time.Now().Before(a.expire.Add(-time.Minute)) {
+		return "", false
+	}
+
+	return a.token, true
+}
+
+func (a *EAuth) cacheToken(token string, expire time.Time) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.token = token
+	a.expire = expire
 }
 
 type loginRequest struct {
