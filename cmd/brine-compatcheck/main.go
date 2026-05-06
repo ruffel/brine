@@ -13,8 +13,9 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"text/tabwriter"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -263,31 +264,74 @@ func cleanOutputLine(line string) string {
 	return line
 }
 
+var (
+	styleHeader    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA"))
+	stylePass      = lipgloss.NewStyle().Foreground(lipgloss.Color("#4E9A06")).Bold(true)
+	styleSkip      = lipgloss.NewStyle().Foreground(lipgloss.Color("#C4A000")).Bold(true)
+	styleFail      = lipgloss.NewStyle().Foreground(lipgloss.Color("#CC0000")).Bold(true)
+	styleError     = lipgloss.NewStyle().Foreground(lipgloss.Color("#CC0000")).Bold(true)
+	styleMissing   = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
+	styleLabel     = lipgloss.NewStyle().Foreground(lipgloss.Color("#729FCF")).Bold(true)
+	styleDetail    = lipgloss.NewStyle().Foreground(lipgloss.Color("#EEEEEE"))
+	styleDim       = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	styleSeparator = lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
+)
+
+func styledStatus(status string) string {
+	switch status {
+	case outcomePass:
+		return stylePass.Render("PASS")
+	case outcomeSkip:
+		return styleSkip.Render("SKIP")
+	case outcomeFail:
+		return styleFail.Render("FAIL")
+	case outcomeError:
+		return styleError.Render("ERROR")
+	default:
+		return styleMissing.Render(outcomeMissing)
+	}
+}
+
 func printTable(w io.Writer, results []providerResult) {
 	ids := orderedContractIDs(results)
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprint(tw, "CONTRACT")
-	for _, result := range results {
-		_, _ = fmt.Fprintf(tw, "\t%s", strings.ToUpper(result.Spec.Name))
-	}
-	_, _ = fmt.Fprintln(tw)
 
+	// Compute column widths
+	colWidths := make([]int, len(results)+1)
+	colWidths[0] = maxLen(append(ids, "CONTRACT")...)
+	for i, result := range results {
+		colWidths[i+1] = maxLen(result.Spec.Name, "PASS")
+	}
+
+	// Header
+	_, _ = fmt.Fprint(w, styleHeader.Render(padRight("CONTRACT", colWidths[0])))
+	for i, result := range results {
+		_, _ = fmt.Fprint(w, "  "+styleHeader.Render(padRight(strings.ToUpper(result.Spec.Name), colWidths[i+1])))
+	}
+	_, _ = fmt.Fprintln(w)
+
+	// Separator
+	sepLen := colWidths[0]
+	for i := 1; i < len(colWidths); i++ {
+		sepLen += 2 + colWidths[i]
+	}
+	_, _ = fmt.Fprintln(w, styleSeparator.Render(strings.Repeat("─", sepLen)))
+
+	// Rows
 	for _, id := range ids {
-		_, _ = fmt.Fprint(tw, id)
-		for _, result := range results {
+		_, _ = fmt.Fprint(w, padRight(id, colWidths[0]))
+		for i, result := range results {
 			outcome, ok := result.Outcomes[id]
 			if !ok {
-				_, _ = fmt.Fprintf(tw, "\t%s", outcomeMissing)
+				_, _ = fmt.Fprint(w, "  "+padRight(styledStatus(outcomeMissing), colWidths[i+1]))
 				continue
 			}
-
-			_, _ = fmt.Fprintf(tw, "\t%s", outcome.Status)
+			_, _ = fmt.Fprint(w, "  "+padRight(styledStatus(outcome.Status), colWidths[i+1]))
 		}
-		_, _ = fmt.Fprintln(tw)
+		_, _ = fmt.Fprintln(w)
 	}
-	_ = tw.Flush()
 
 	printDetails(w, results)
+	printSummary(w, results)
 }
 
 func printDetails(w io.Writer, results []providerResult) {
@@ -298,7 +342,6 @@ func printDetails(w io.Writer, results []providerResult) {
 			if outcome.Status == outcomePass || outcome.Reason == "" {
 				continue
 			}
-
 			details = append(details, fmt.Sprintf("%s %s %s: %s", result.Spec.Name, id, outcome.Status, outcome.Reason))
 		}
 	}
@@ -309,10 +352,68 @@ func printDetails(w io.Writer, results []providerResult) {
 
 	sort.Strings(details)
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "DETAILS")
+	_, _ = fmt.Fprintln(w, styleLabel.Render("Details"))
+	_, _ = fmt.Fprintln(w, styleSeparator.Render(strings.Repeat("─", 7)))
 	for _, detail := range details {
-		_, _ = fmt.Fprintln(w, detail)
+		_, _ = fmt.Fprintln(w, "  "+styleDetail.Render("• "+detail))
 	}
+}
+
+func printSummary(w io.Writer, results []providerResult) {
+	var pass, skip, fail, errCount int
+	for _, result := range results {
+		for _, outcome := range result.Outcomes {
+			switch outcome.Status {
+			case outcomePass:
+				pass++
+			case outcomeSkip:
+				skip++
+			case outcomeFail:
+				fail++
+			case outcomeError:
+				errCount++
+			}
+		}
+	}
+
+	parts := []string{}
+	if pass > 0 {
+		parts = append(parts, stylePass.Render(fmt.Sprintf("%d passed", pass)))
+	}
+	if skip > 0 {
+		parts = append(parts, styleSkip.Render(fmt.Sprintf("%d skipped", skip)))
+	}
+	if fail > 0 {
+		parts = append(parts, styleFail.Render(fmt.Sprintf("%d failed", fail)))
+	}
+	if errCount > 0 {
+		parts = append(parts, styleError.Render(fmt.Sprintf("%d errors", errCount)))
+	}
+
+	if len(parts) == 0 {
+		return
+	}
+
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, styleLabel.Render("Summary")+": "+
+		strings.Join(parts, styleDim.Render(" · ")))
+}
+
+func padRight(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-len(s))
+}
+
+func maxLen(strs ...string) int {
+	max := 0
+	for _, s := range strs {
+		if len(s) > max {
+			max = len(s)
+		}
+	}
+	return max
 }
 
 func orderedContractIDs(results []providerResult) []string {
