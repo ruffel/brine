@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/internal/integration"
+	"github.com/ruffel/brine/brinetest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationRESTSyncWorkflows(t *testing.T) {
-	env := integration.Salt(t)
+	env := brinetest.Salt(t)
 	client := newIntegrationClient(t, env)
 	minions := expectedMinionIDs(env.ExpectedMinions)
 	target := brine.List(minions...)
@@ -149,7 +149,7 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 	})
 }
 
-func newIntegrationClient(t *testing.T, env integration.SaltEnv) *brine.Client {
+func newIntegrationClient(t *testing.T, env brinetest.SaltEnv) *brine.Client {
 	t.Helper()
 
 	transport, err := New(Config{
@@ -165,7 +165,7 @@ func newIntegrationClient(t *testing.T, env integration.SaltEnv) *brine.Client {
 	return client
 }
 
-func integrationAuth(env integration.SaltEnv) Authenticator {
+func integrationAuth(env brinetest.SaltEnv) Authenticator {
 	if env.AuthMode == "noauth" {
 		return NoAuth{}
 	}

@@ -10,12 +10,11 @@ import (
 
 	"github.com/ruffel/brine"
 	"github.com/ruffel/brine/brinetest"
-	"github.com/ruffel/brine/internal/integration"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationPythonContracts(t *testing.T) {
-	env := integration.Salt(t)
+	env := brinetest.Salt(t)
 	client := newIntegrationClient(t)
 	minions := expectedMinionIDs(env.ExpectedMinions)
 

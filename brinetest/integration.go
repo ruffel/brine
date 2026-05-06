@@ -1,6 +1,6 @@
 //go:build integration
 
-package integration
+package brinetest
 
 import (
 	"os"
@@ -39,17 +39,17 @@ func Salt(t testing.TB) SaltEnv {
 	}
 
 	return SaltEnv{
-		URL:             env("BRINE_SALT_URL", defaultSaltURL),
-		Username:        env("BRINE_SALT_USERNAME", defaultSaltUsername),
-		Password:        env("BRINE_SALT_PASSWORD", defaultSaltPassword),
-		EAuth:           env("BRINE_SALT_EAUTH", defaultSaltEAuth),
-		AuthMode:        env("BRINE_SALT_AUTH_MODE", defaultSaltAuthMode),
-		Version:         env("BRINE_SALT_VERSION", env("SALT_VERSION", defaultSaltVersion)),
-		ExpectedMinions: envInt("BRINE_EXPECTED_MINIONS", defaultExpectedMinions),
+		URL:             envDefault("BRINE_SALT_URL", defaultSaltURL),
+		Username:        envDefault("BRINE_SALT_USERNAME", defaultSaltUsername),
+		Password:        envDefault("BRINE_SALT_PASSWORD", defaultSaltPassword),
+		EAuth:           envDefault("BRINE_SALT_EAUTH", defaultSaltEAuth),
+		AuthMode:        envDefault("BRINE_SALT_AUTH_MODE", defaultSaltAuthMode),
+		Version:         envDefault("BRINE_SALT_VERSION", envDefault("SALT_VERSION", defaultSaltVersion)),
+		ExpectedMinions: envDefaultInt("BRINE_EXPECTED_MINIONS", defaultExpectedMinions),
 	}
 }
 
-func env(key string, fallback string) string {
+func envDefault(key string, fallback string) string {
 	value := os.Getenv(key)
 	if value == "" {
 		return fallback
@@ -58,7 +58,7 @@ func env(key string, fallback string) string {
 	return value
 }
 
-func envInt(key string, fallback int) int {
+func envDefaultInt(key string, fallback int) int {
 	value := os.Getenv(key)
 	if value == "" {
 		return fallback

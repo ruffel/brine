@@ -7,11 +7,10 @@ import (
 
 	"github.com/ruffel/brine"
 	"github.com/ruffel/brine/brinetest"
-	"github.com/ruffel/brine/internal/integration"
 )
 
 func TestIntegrationRESTContracts(t *testing.T) {
-	env := integration.Salt(t)
+	env := brinetest.Salt(t)
 	client := newIntegrationClient(t, env)
 	minions := expectedMinionIDs(env.ExpectedMinions)
 

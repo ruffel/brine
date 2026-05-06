@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/internal/integration"
+	"github.com/ruffel/brine/brinetest"
 	"github.com/ruffel/brine/modules"
 	pytransport "github.com/ruffel/brine/transports/python"
 	resttransport "github.com/ruffel/brine/transports/rest"
@@ -20,7 +20,7 @@ import (
 )
 
 func TestIntegrationModulesREST(t *testing.T) {
-	env := integration.Salt(t)
+	env := brinetest.Salt(t)
 	transport, err := resttransport.New(resttransport.Config{BaseURL: env.URL, Auth: integrationAuth(env)})
 	require.NoError(t, err)
 
@@ -32,7 +32,7 @@ func TestIntegrationModulesREST(t *testing.T) {
 }
 
 func TestIntegrationModulesPython(t *testing.T) {
-	env := integration.Salt(t)
+	env := brinetest.Salt(t)
 	transport, err := pytransport.New(pytransport.Config{Command: integrationBridgeScript(t)})
 	require.NoError(t, err)
 
@@ -74,7 +74,7 @@ func verifyFoundationalModules(t *testing.T, client *brine.Client, minions []str
 	}
 }
 
-func integrationAuth(env integration.SaltEnv) resttransport.Authenticator {
+func integrationAuth(env brinetest.SaltEnv) resttransport.Authenticator {
 	if env.AuthMode == "noauth" {
 		return resttransport.NoAuth{}
 	}
