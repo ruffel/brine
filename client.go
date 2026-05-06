@@ -30,9 +30,13 @@ func WithHandlerChain(mw ...Middleware) ClientOption {
 	}
 }
 
-// WithObserver registers a client-wide observer.
-func WithObserver(observer Observer) ClientOption {
-	return func(cfg *clientConfig) { cfg.observer = MultiObserver(cfg.observer, observer) }
+// WithObserver registers client-wide observers.
+func WithObserver(observers ...Observer) ClientOption {
+	return func(cfg *clientConfig) {
+		for _, observer := range observers {
+			cfg.observer = MultiObserver(cfg.observer, observer)
+		}
+	}
 }
 
 type runConfig struct{ observer Observer }
@@ -40,9 +44,13 @@ type runConfig struct{ observer Observer }
 // RunOption configures a single Run call.
 type RunOption func(*runConfig)
 
-// WithRunObserver registers an observer for a single Run call.
-func WithRunObserver(observer Observer) RunOption {
-	return func(cfg *runConfig) { cfg.observer = MultiObserver(cfg.observer, observer) }
+// WithRunObserver registers observers for a single Run call.
+func WithRunObserver(observers ...Observer) RunOption {
+	return func(cfg *runConfig) {
+		for _, observer := range observers {
+			cfg.observer = MultiObserver(cfg.observer, observer)
+		}
+	}
 }
 
 // Client executes Salt requests through a Transport.
