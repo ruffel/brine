@@ -380,7 +380,6 @@ func TestRunLocalAsyncModePreservesTargetArgsKwargsAndOptions(t *testing.T) {
 		brine.FullReturn(true),
 		brine.ModuleTimeout(3*time.Second),
 		brine.GatherJobTimeout(4*time.Second),
-		brine.BatchCount(2),
 	))
 	require.NoError(t, err)
 	require.True(t, result.OK())
@@ -396,7 +395,7 @@ func TestRunLocalAsyncModePreservesTargetArgsKwargsAndOptions(t *testing.T) {
 	assert.Equal(t, true, start["full_return"])
 	assert.Equal(t, float64(3), start["timeout"])
 	assert.Equal(t, float64(4), start["gather_job_timeout"])
-	assert.Equal(t, "2", start["batch"])
+	assert.NotContains(t, start, "batch")
 
 	lookup := captured[1]
 	assert.Equal(t, "runner", lookup["client"])
@@ -823,7 +822,6 @@ func TestRESTPayloadTargetsAndOptions(t *testing.T) {
 				brine.FullReturn(true),
 				brine.ModuleTimeout(3*time.Second),
 				brine.GatherJobTimeout(4*time.Second),
-				brine.BatchPercent(25),
 			),
 			want: map[string]any{
 				"client":             "local",
@@ -834,7 +832,6 @@ func TestRESTPayloadTargetsAndOptions(t *testing.T) {
 				"full_return":        true,
 				"timeout":            float64(3),
 				"gather_job_timeout": float64(4),
-				"batch":              "25%",
 			},
 		},
 		{
@@ -861,6 +858,20 @@ func TestRESTPayloadTargetsAndOptions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunRejectsUnsupportedBatch(t *testing.T) {
+	t.Parallel()
+
+	transport, err := New(Config{BaseURL: "http://127.0.0.1:8000", Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*"), brine.BatchCount(2)))
+	require.ErrorIs(t, err, brine.ErrUnsupported)
+
+	var unsupported *brine.UnsupportedError
+	require.ErrorAs(t, err, &unsupported)
+	assert.Equal(t, brine.CapBatch, unsupported.Capability)
 }
 
 func TestRESTPayloadOmitsRequestMetadata(t *testing.T) {

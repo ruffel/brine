@@ -151,6 +151,9 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
+	if err := t.requireSupportedOptions(req, "Run"); err != nil {
+		return nil, err
+	}
 
 	if req.Kind == brine.KindLocal && t.shouldRunLocalAsync(ctx) {
 		return t.runLocalAsync(ctx, req)
@@ -162,6 +165,9 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 // Start dispatches asynchronous Salt work through REST.
 func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, error) {
 	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	if err := t.requireSupportedOptions(req, "Start"); err != nil {
 		return nil, err
 	}
 
@@ -191,6 +197,22 @@ func (t *Transport) Resolve(ctx context.Context, target brine.Target) ([]string,
 	}
 
 	return responsiveMinions(result), nil
+}
+
+func (t *Transport) requireSupportedOptions(req brine.Request, operation string) error {
+	if !requestUsesBatch(req) {
+		return nil
+	}
+
+	if t.caps.Supports(brine.CapBatch) {
+		return nil
+	}
+
+	return &brine.UnsupportedError{Capability: brine.CapBatch, Operation: operation}
+}
+
+func requestUsesBatch(req brine.Request) bool {
+	return req.Options.Batch.Count > 0 || req.Options.Batch.Percent > 0
 }
 
 func responsiveMinions(result *brine.Result) []string {
