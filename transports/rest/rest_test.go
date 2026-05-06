@@ -1219,6 +1219,48 @@ func TestStartLocalAsyncWaitReturnsPartialOnMissingMinionCancellation(t *testing
 	assert.Equal(t, 2, requestCount)
 }
 
+func TestStartLocalAsyncWaitTimeoutIsCached(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		switch requestCount {
+		case 1:
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":["minion-1","minion-2"]}]}`))
+		default:
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{
+		BaseURL:         server.URL,
+		Auth:            NoAuth{},
+		JobPollInterval: 500 * time.Millisecond,
+		JobWaitTimeout:  10 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+
+	result, err := job.Wait(context.Background())
+	require.Error(t, err)
+	require.ErrorIs(t, err, brine.ErrExecution)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"minion-2"}, result.Missing)
+	assert.Equal(t, 2, requestCount)
+
+	cached, err := job.Wait(context.Background())
+	require.Error(t, err)
+	assert.Same(t, result, cached)
+	assert.Equal(t, 2, requestCount)
+}
+
 func TestStartLocalAsyncWaitCancellationIsNotCached(t *testing.T) {
 	t.Parallel()
 

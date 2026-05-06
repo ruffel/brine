@@ -100,18 +100,21 @@ func (j *localJob) Events(ctx context.Context) (brine.EventStream, error) {
 }
 
 func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
+	waitCtx, cancelWait := j.waitContext(ctx)
+	defer cancelWait()
+
 	accumulator := resultaccumulator.New(j.req)
 	if len(j.expected) > 0 {
-		accumulator.SetExpected(ctx, j.jid, j.expected)
+		accumulator.SetExpected(waitCtx, j.jid, j.expected)
 	} else {
 		accumulator.SetJID(j.jid)
 	}
 
-	events, stopEvents := j.startReturnEventStream(ctx)
+	events, stopEvents := j.startReturnEventStream(waitCtx)
 	defer stopEvents()
 
 	for {
-		result, err := j.transport.lookupLocalJob(ctx, j.req, j.jid, j.expected)
+		result, err := j.transport.lookupLocalJob(waitCtx, j.req, j.jid, j.expected)
 		if err != nil {
 			if accumulator.HasReturns() {
 				return accumulator.Result(), err, false
@@ -120,7 +123,7 @@ func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 			return result, err, false
 		}
 
-		accumulator.MergeResult(ctx, result)
+		accumulator.MergeResult(waitCtx, result)
 		current := accumulator.Result()
 		if jobLookupComplete(current, j.expected) {
 			result, err := resultWithExecutionError(current)
@@ -128,12 +131,24 @@ func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 			return result, err, true
 		}
 
-		if err := waitJobLookupPollOrEvent(ctx, j.transport.jobPollInterval, events, accumulator); err != nil {
+		if err := waitJobLookupPollOrEvent(waitCtx, j.transport.jobPollInterval, events, accumulator); err != nil {
 			current = accumulator.Result()
 
-			return current, brine.NewExecutionError(current, err), false
+			return current, brine.NewExecutionError(current, err), j.isConfiguredWaitTimeout(err)
 		}
 	}
+}
+
+func (j *localJob) waitContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if j.transport == nil || j.transport.jobWaitTimeout <= 0 {
+		return ctx, func() {}
+	}
+
+	return context.WithTimeout(ctx, j.transport.jobWaitTimeout)
+}
+
+func (j *localJob) isConfiguredWaitTimeout(err error) bool {
+	return j.transport != nil && j.transport.jobWaitTimeout > 0 && errors.Is(err, context.DeadlineExceeded)
 }
 
 type localJobReturn struct {

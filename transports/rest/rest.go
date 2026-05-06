@@ -43,7 +43,12 @@ type Config struct {
 	HTTPClient      *http.Client
 	Auth            Authenticator
 	JobPollInterval time.Duration
-	LocalRunMode    LocalRunMode
+	// JobWaitTimeout bounds Job.Wait polling for asynchronous local jobs. When
+	// set, missing expected minions are returned as execution failures instead
+	// of polling indefinitely. A zero value keeps waiting until the caller's
+	// context is canceled.
+	JobWaitTimeout time.Duration
+	LocalRunMode   LocalRunMode
 }
 
 // Authenticator provides Salt API authentication tokens.
@@ -59,6 +64,7 @@ type Transport struct {
 	client          *http.Client
 	auth            Authenticator
 	jobPollInterval time.Duration
+	jobWaitTimeout  time.Duration
 	localRunMode    LocalRunMode
 	caps            brine.Capabilities
 
@@ -88,6 +94,7 @@ func New(config Config) (*Transport, error) {
 		client:          client,
 		auth:            config.Auth,
 		jobPollInterval: jobPollInterval,
+		jobWaitTimeout:  config.JobWaitTimeout,
 		localRunMode:    config.LocalRunMode,
 		caps:            capabilitiesForLocalRunMode(config.LocalRunMode),
 	}, nil
