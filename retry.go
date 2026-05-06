@@ -224,7 +224,7 @@ func cloneMinionResult(result MinionResult) MinionResult {
 }
 
 func removeString(values []string, value string) []string {
-	out := values[:0]
+	out := make([]string, 0, len(values))
 	for _, candidate := range values {
 		if candidate != value {
 			out = append(out, candidate)
