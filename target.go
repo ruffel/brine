@@ -29,21 +29,39 @@ type TargetSpec struct {
 }
 
 // GlobTarget targets minions using Salt glob matching.
+//
+// GlobTarget is exported for callers that prefer literal construction. Treat
+// target values as immutable after passing them to a Brine request.
 type GlobTarget string
 
 // CompoundTarget targets minions using Salt compound matching.
+//
+// CompoundTarget is exported for callers that prefer literal construction.
+// Treat target values as immutable after passing them to a Brine request.
 type CompoundTarget string
 
 // GrainTarget targets minions using Salt grain matching.
+//
+// GrainTarget is exported for callers that prefer literal construction. Treat
+// target values as immutable after passing them to a Brine request.
 type GrainTarget string
 
 // PillarTarget targets minions using Salt pillar matching.
+//
+// PillarTarget is exported for callers that prefer literal construction. Treat
+// target values as immutable after passing them to a Brine request.
 type PillarTarget string
 
 // NodeGroupTarget targets a configured Salt nodegroup.
+//
+// NodeGroupTarget is exported for callers that prefer literal construction.
+// Treat target values as immutable after passing them to a Brine request.
 type NodeGroupTarget string
 
 // ListTarget targets an explicit set of minion IDs.
+//
+// ListTarget is exported for callers that prefer literal construction. Prefer
+// List when building from caller-owned slices because List copies its inputs.
 type ListTarget []string
 
 func (GlobTarget) isTarget()      {}
