@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -164,9 +163,9 @@ func login(ctx context.Context, client *http.Client, baseURL string, payload log
 
 	defer func() { _ = response.Body.Close() }()
 
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
+	data, err := readLimitedBody(response.Body, "read login response")
 	if err != nil {
-		return "", time.Time{}, brine.NewTransportError("read login response", err)
+		return "", time.Time{}, err
 	}
 
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {

@@ -291,9 +291,9 @@ func (t *Transport) postBody(ctx context.Context, body []byte, retryAuth bool) (
 
 	defer func() { _ = response.Body.Close() }()
 
-	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
+	data, err := readLimitedBody(response.Body, "read response")
 	if err != nil {
-		return nil, brine.NewTransportError("read response", err)
+		return nil, err
 	}
 
 	if response.StatusCode == http.StatusUnauthorized && retryAuth && t.invalidateAuthToken() {
@@ -546,6 +546,23 @@ func isEmptyLowstateTarget(target any) bool {
 	default:
 		return false
 	}
+}
+
+func readLimitedBody(body io.Reader, op string) ([]byte, error) {
+	return readLimitedBodyWithLimit(body, op, maxResponseBytes)
+}
+
+func readLimitedBodyWithLimit(body io.Reader, op string, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, brine.NewTransportError(op, err)
+	}
+
+	if int64(len(data)) > limit {
+		return nil, brine.NewProtocolError("", fmt.Errorf("response exceeds %d bytes", limit))
+	}
+
+	return data, nil
 }
 
 func snippet(data []byte) string {

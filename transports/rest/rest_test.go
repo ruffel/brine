@@ -39,6 +39,13 @@ const asyncStateFailureResponse = `{
   }]
 }`
 
+func TestReadLimitedBodyWithLimitRejectsOversizedBody(t *testing.T) {
+	t.Parallel()
+
+	_, err := readLimitedBodyWithLimit(strings.NewReader("12345"), "read response", 4)
+	require.ErrorIs(t, err, brine.ErrProtocol)
+}
+
 func TestRunLocalDirectModePing(t *testing.T) {
 	t.Parallel()
 

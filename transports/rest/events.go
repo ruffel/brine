@@ -117,9 +117,9 @@ func validateStreamResponse(response *http.Response) error {
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		defer func() { _ = response.Body.Close() }()
 
-		data, err := io.ReadAll(response.Body)
+		data, err := readLimitedBody(response.Body, "read events error response")
 		if err != nil {
-			return brine.NewTransportError("read events error response", err)
+			return err
 		}
 
 		return brine.NewProtocolError(snippet(data), fmt.Errorf("unexpected HTTP status %d", response.StatusCode))
