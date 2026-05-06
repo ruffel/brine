@@ -16,11 +16,29 @@ import (
 
 // Result is a typed per-minion projection of a Brine local execution result.
 type Result[T any] struct {
-	Nodes        map[string]T
-	RetCodes     map[string]int
-	FailedNodes  []string
+	// ByMinion contains decoded module returns keyed by Salt minion ID.
+	ByMinion map[string]T
+	// RetCodes contains Salt retcodes keyed by Salt minion ID.
+	RetCodes map[string]int
+	// FailedMinions contains minion IDs that returned failed execution data.
+	FailedMinions []string
+	// MissingMinions contains expected minion IDs that did not return.
+	MissingMinions []string
+	// Raw preserves the underlying normalized Brine result.
+	Raw *brine.Result
+
+	// Nodes contains decoded module returns keyed by Salt minion ID.
+	//
+	// Deprecated: use ByMinion.
+	Nodes map[string]T
+	// FailedNodes contains minion IDs that returned failed execution data.
+	//
+	// Deprecated: use FailedMinions.
+	FailedNodes []string
+	// MissingNodes contains expected minion IDs that did not return.
+	//
+	// Deprecated: use MissingMinions.
 	MissingNodes []string
-	Raw          *brine.Result
 }
 
 // DecodeError reports that one minion return could not be projected into a
@@ -89,7 +107,7 @@ func RunLocal[T any](ctx context.Context, client *brine.Client, req brine.Reques
 }
 
 func decodeByMinion[T any](result *brine.Result) (map[string]T, error) {
-	nodes := make(map[string]T, len(result.ByMinion))
+	byMinion := make(map[string]T, len(result.ByMinion))
 	errs := make([]error, 0)
 	function := ""
 	if result.Request != nil {
@@ -110,19 +128,24 @@ func decodeByMinion[T any](result *brine.Result) (map[string]T, error) {
 			continue
 		}
 
-		nodes[minion] = value
+		byMinion[minion] = value
 	}
 
-	return nodes, errors.Join(errs...)
+	return byMinion, errors.Join(errs...)
 }
 
-func fromResult[T any](nodes map[string]T, result *brine.Result) *Result[T] {
+func fromResult[T any](byMinion map[string]T, result *brine.Result) *Result[T] {
+	failedMinions := failedMinions(result)
+	missingMinions := append([]string(nil), result.Missing...)
 	out := &Result[T]{
-		Nodes:        nodes,
-		RetCodes:     make(map[string]int, len(result.ByMinion)),
-		FailedNodes:  failedNodes(result),
-		MissingNodes: append([]string(nil), result.Missing...),
-		Raw:          result,
+		ByMinion:       byMinion,
+		RetCodes:       make(map[string]int, len(result.ByMinion)),
+		FailedMinions:  failedMinions,
+		MissingMinions: missingMinions,
+		Raw:            result,
+		Nodes:          byMinion,
+		FailedNodes:    failedMinions,
+		MissingNodes:   missingMinions,
 	}
 
 	for minion, ret := range result.ByMinion {
@@ -132,7 +155,7 @@ func fromResult[T any](nodes map[string]T, result *brine.Result) *Result[T] {
 	return out
 }
 
-func failedNodes(result *brine.Result) []string {
+func failedMinions(result *brine.Result) []string {
 	failures := result.Failures()
 	out := make([]string, 0, len(failures))
 	for _, failure := range failures {

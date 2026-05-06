@@ -33,7 +33,7 @@ func TestCmdRun(t *testing.T) {
 
 	result, err := modules.CmdRun(ctx(), client, brine.List("minion-1"), "printf brine", modules.CmdRunOptions{PrependPath: "/usr/local/bin"})
 	require.NoError(t, err)
-	assert.Equal(t, "brine", result.Nodes["minion-1"])
+	assert.Equal(t, "brine", result.ByMinion["minion-1"])
 	assert.Zero(t, result.RetCodes["minion-1"])
 }
 
@@ -56,7 +56,7 @@ func TestCmdRetcode(t *testing.T) {
 
 	result, err := modules.CmdRetcode(ctx(), client, brine.List("minion-1"), "true", modules.CmdRunOptions{PrependPath: "/usr/local/bin"})
 	require.NoError(t, err)
-	assert.Zero(t, result.Nodes["minion-1"])
+	assert.Zero(t, result.ByMinion["minion-1"])
 }
 
 func TestCmdRunOneRetCodeError(t *testing.T) {
@@ -86,7 +86,7 @@ func TestTestPing(t *testing.T) {
 	client := clientForReturn(t, "test.ping", `true`)
 	result, err := modules.TestPing(ctx(), client, brine.List("minion-1"))
 	require.NoError(t, err)
-	assert.True(t, result.Nodes["minion-1"])
+	assert.True(t, result.ByMinion["minion-1"])
 }
 
 func TestTestVersion(t *testing.T) {
@@ -95,7 +95,7 @@ func TestTestVersion(t *testing.T) {
 	client := clientForReturn(t, "test.version", `"3006.9"`)
 	result, err := modules.TestVersion(ctx(), client, brine.List("minion-1"))
 	require.NoError(t, err)
-	assert.Equal(t, "3006.9", result.Nodes["minion-1"])
+	assert.Equal(t, "3006.9", result.ByMinion["minion-1"])
 }
 
 func TestGrainsID(t *testing.T) {
@@ -116,7 +116,7 @@ func TestGrainsID(t *testing.T) {
 
 	result, err := modules.GrainsID(ctx(), client, brine.List("minion-1"))
 	require.NoError(t, err)
-	assert.Equal(t, "minion-1", result.Nodes["minion-1"])
+	assert.Equal(t, "minion-1", result.ByMinion["minion-1"])
 }
 
 func TestGrainsGet(t *testing.T) {
@@ -125,7 +125,7 @@ func TestGrainsGet(t *testing.T) {
 	client := clientForReturn(t, "grains.get", `"Debian"`)
 	result, err := modules.GrainsGet[string](ctx(), client, brine.List("minion-1"), "os")
 	require.NoError(t, err)
-	assert.Equal(t, "Debian", result.Nodes["minion-1"])
+	assert.Equal(t, "Debian", result.ByMinion["minion-1"])
 }
 
 func TestFileExists(t *testing.T) {
@@ -147,7 +147,7 @@ func TestFileExists(t *testing.T) {
 
 	result, err := modules.FileExists(ctx(), client, brine.List("minion-1"), "/etc/salt/minion.d/brine.conf")
 	require.NoError(t, err)
-	assert.True(t, result.Nodes["minion-1"])
+	assert.True(t, result.ByMinion["minion-1"])
 }
 
 func TestDirectoryExists(t *testing.T) {
@@ -169,7 +169,7 @@ func TestDirectoryExists(t *testing.T) {
 
 	result, err := modules.DirectoryExists(ctx(), client, brine.List("minion-1"), "/etc/salt/minion.d")
 	require.NoError(t, err)
-	assert.True(t, result.Nodes["minion-1"])
+	assert.True(t, result.ByMinion["minion-1"])
 }
 
 func TestServiceStatus(t *testing.T) {
@@ -192,7 +192,7 @@ func TestServiceStatus(t *testing.T) {
 
 	result, err := modules.ServiceStatus(ctx(), client, brine.Glob("*"), "sshd", modules.ServiceStatusOptions{})
 	require.NoError(t, err)
-	assert.True(t, result.Nodes["minion-1"])
+	assert.True(t, result.ByMinion["minion-1"])
 }
 
 func TestServiceStatusRegex(t *testing.T) {
@@ -215,8 +215,8 @@ func TestServiceStatusRegex(t *testing.T) {
 
 	result, err := modules.ServiceStatusRegex(ctx(), client, brine.Glob("*"), "^(web|db).*", modules.ServiceStatusRegexOptions{})
 	require.NoError(t, err)
-	assert.True(t, result.Nodes["minion-1"]["web"])
-	assert.False(t, result.Nodes["minion-1"]["db"])
+	assert.True(t, result.ByMinion["minion-1"]["web"])
+	assert.False(t, result.ByMinion["minion-1"]["db"])
 }
 
 func TestNetworkInterfaces(t *testing.T) {
@@ -226,7 +226,7 @@ func TestNetworkInterfaces(t *testing.T) {
 	result, err := modules.NetworkInterfaces(ctx(), client, brine.List("minion-1"))
 	require.NoError(t, err)
 
-	ifaces := result.Nodes["minion-1"]
+	ifaces := result.ByMinion["minion-1"]
 	assert.True(t, ifaces.Has("eth0"))
 	assert.True(t, ifaces.IsUp("eth0"))
 	assert.Equal(t, []string{"10.0.0.1"}, ifaces.IPs("eth0"))
@@ -241,8 +241,8 @@ func TestNetworkIPAddrs(t *testing.T) {
 	client := clientForReturn(t, "network.ip_addrs", `["10.0.0.1","127.0.0.1"]`)
 	result, err := modules.NetworkIPAddrs(ctx(), client, brine.List("minion-1"))
 	require.NoError(t, err)
-	assert.True(t, result.Nodes["minion-1"].Has("10.0.0.1"))
-	assert.False(t, result.Nodes["minion-1"].Has("192.0.2.1"))
+	assert.True(t, result.ByMinion["minion-1"].Has("10.0.0.1"))
+	assert.False(t, result.ByMinion["minion-1"].Has("192.0.2.1"))
 }
 
 func TestNetworkHostnames(t *testing.T) {
@@ -251,7 +251,7 @@ func TestNetworkHostnames(t *testing.T) {
 	client := clientForReturn(t, "network.get_hostname", `"minion-1.example"`)
 	result, err := modules.NetworkHostnames(ctx(), client, brine.List("minion-1"))
 	require.NoError(t, err)
-	assert.Equal(t, "minion-1.example", result.Nodes["minion-1"])
+	assert.Equal(t, "minion-1.example", result.ByMinion["minion-1"])
 }
 
 func TestRunLocalRejectsNonLocalRequests(t *testing.T) {
@@ -303,8 +303,11 @@ func TestRunLocalReturnsPartialResultWithExecutionError(t *testing.T) {
 	require.Error(t, err)
 	var executionError *brine.ExecutionError
 	require.ErrorAs(t, err, &executionError)
-	assert.Equal(t, "ok", result.Nodes["minion-1"])
-	assert.Equal(t, []string{"minion-2"}, result.FailedNodes)
+	assert.Equal(t, "ok", result.ByMinion["minion-1"])
+	assert.Equal(t, []string{"minion-2"}, result.FailedMinions)
+	assert.Equal(t, result.ByMinion, result.Nodes)
+	assert.Equal(t, result.FailedMinions, result.FailedNodes)
+	assert.Equal(t, result.MissingMinions, result.MissingNodes)
 }
 
 func TestRunLocalReturnsPartialResultWithDecodeError(t *testing.T) {
@@ -326,8 +329,8 @@ func TestRunLocalReturnsPartialResultWithDecodeError(t *testing.T) {
 	result, err := modules.RunLocal[string](ctx(), client, brine.Local("cmd.run", brine.Glob("*"), brine.Args("true")))
 	require.Error(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, "ok", result.Nodes["minion-1"])
-	assert.NotContains(t, result.Nodes, "minion-2")
+	assert.Equal(t, "ok", result.ByMinion["minion-1"])
+	assert.NotContains(t, result.ByMinion, "minion-2")
 
 	var decodeError *modules.DecodeError
 	require.ErrorAs(t, err, &decodeError)

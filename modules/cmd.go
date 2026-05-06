@@ -68,7 +68,7 @@ func CmdRunOne(ctx context.Context, client *brine.Client, minion string, command
 		return "", 0, err
 	}
 
-	output, ok := result.Nodes[minion]
+	output, ok := result.ByMinion[minion]
 	if !ok {
 		return "", 0, errors.Join(err, fmt.Errorf("brine/modules: no cmd.run response from %q", minion))
 	}

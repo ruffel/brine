@@ -26,7 +26,7 @@ func ExampleCmdRun() {
 		panic(err)
 	}
 
-	fmt.Println(result.Nodes["minion-1"])
+	fmt.Println(result.ByMinion["minion-1"])
 	fmt.Println(result.RetCodes["minion-1"])
 	// Output:
 	// hello
@@ -44,7 +44,7 @@ func ExampleCmdRetcode() {
 		panic(err)
 	}
 
-	fmt.Println(result.Nodes["minion-1"])
+	fmt.Println(result.ByMinion["minion-1"])
 	// Output:
 	// 0
 }
@@ -60,7 +60,7 @@ func ExampleTestPing() {
 		panic(err)
 	}
 
-	fmt.Println(result.Nodes["minion-1"])
+	fmt.Println(result.ByMinion["minion-1"])
 	// Output:
 	// true
 }
@@ -76,7 +76,7 @@ func ExampleGrainsID() {
 		panic(err)
 	}
 
-	fmt.Println(result.Nodes["minion-1"])
+	fmt.Println(result.ByMinion["minion-1"])
 	// Output:
 	// minion-1
 }
@@ -92,7 +92,7 @@ func ExampleFileExists() {
 		panic(err)
 	}
 
-	fmt.Println(result.Nodes["minion-1"])
+	fmt.Println(result.ByMinion["minion-1"])
 	// Output:
 	// true
 }
@@ -108,7 +108,7 @@ func ExampleNetworkInterfaces() {
 		panic(err)
 	}
 
-	ifaces := result.Nodes["minion-1"]
+	ifaces := result.ByMinion["minion-1"]
 	fmt.Println(ifaces.Has("eth0"))
 	fmt.Println(ifaces.IsUp("eth0"))
 	fmt.Println(ifaces.IPs("eth0"))

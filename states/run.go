@@ -10,11 +10,25 @@ import (
 
 // Result is a typed per-minion projection of a Salt state run.
 type Result struct {
-	ByMinion     map[string]Return
-	Summaries    map[string]Summary
-	FailedNodes  []string
+	// ByMinion contains decoded state returns keyed by Salt minion ID.
+	ByMinion map[string]Return
+	// Summaries contains aggregate state summaries keyed by Salt minion ID.
+	Summaries map[string]Summary
+	// FailedMinions contains minion IDs that returned failed execution data.
+	FailedMinions []string
+	// MissingMinions contains expected minion IDs that did not return.
+	MissingMinions []string
+	// Raw preserves the underlying normalized Brine result.
+	Raw *brine.Result
+
+	// FailedNodes contains minion IDs that returned failed execution data.
+	//
+	// Deprecated: use FailedMinions.
+	FailedNodes []string
+	// MissingNodes contains expected minion IDs that did not return.
+	//
+	// Deprecated: use MissingMinions.
 	MissingNodes []string
-	Raw          *brine.Result
 }
 
 // RunSLS runs state.sls and decodes state returns by minion. If the state run
@@ -88,12 +102,16 @@ func decodeStateReturns(result *brine.Result) (map[string]Return, error) {
 }
 
 func resultFromDecoded(decoded map[string]Return, raw *brine.Result) *Result {
+	failedMinions := failedMinions(raw)
+	missingMinions := append([]string(nil), raw.Missing...)
 	out := &Result{
-		ByMinion:     decoded,
-		Summaries:    make(map[string]Summary, len(decoded)),
-		FailedNodes:  failedNodes(raw),
-		MissingNodes: append([]string(nil), raw.Missing...),
-		Raw:          raw,
+		ByMinion:       decoded,
+		Summaries:      make(map[string]Summary, len(decoded)),
+		FailedMinions:  failedMinions,
+		MissingMinions: missingMinions,
+		Raw:            raw,
+		FailedNodes:    failedMinions,
+		MissingNodes:   missingMinions,
 	}
 
 	for minion, ret := range decoded {
@@ -103,7 +121,7 @@ func resultFromDecoded(decoded map[string]Return, raw *brine.Result) *Result {
 	return out
 }
 
-func failedNodes(result *brine.Result) []string {
+func failedMinions(result *brine.Result) []string {
 	failures := result.Failures()
 	out := make([]string, 0, len(failures))
 	for _, failure := range failures {
