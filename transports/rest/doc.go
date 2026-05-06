@@ -12,8 +12,10 @@
 // lowstate asynchronous dispatch are intentionally unsupported until their Salt
 // response and lookup semantics are covered by fixtures.
 //
-// Job.Wait collects final local async results with runner.jobs.lookup_jid. When
-// a Brine observer/emitter is attached, Wait also consumes rest_cherrypy's
+// Job.Wait collects final local async results with runner.jobs.lookup_jid. If
+// Salt reports that the target matched zero minions, Wait returns an execution
+// failure instead of polling indefinitely because no infrastructure was acted
+// on. When a Brine observer/emitter is attached, Wait also consumes rest_cherrypy's
 // /events stream for low-latency minion return progress; lookup remains the
 // correctness and reconciliation source if events are missed or the stream ends.
 // The lookup polling interval is configured with Config.JobPollInterval and
@@ -21,6 +23,12 @@
 // successful or execution-failed Wait calls return the same result and error.
 // Non-terminal waits, such as context cancellation while expected minions are
 // still missing, return the partial result without poisoning future Wait calls.
+//
+// Direct local mode uses Salt's synchronous local client. For explicit list
+// targets, Brine treats the target list as the expected minion set and marks
+// missing returns as failures. For glob or compound targets, use the default
+// async mode when offline-minion detection is required because synchronous Salt
+// returns may only include responders.
 //
 // If Salt reports execution failures, Wait returns a brine.ExecutionError that
 // carries the normalized partial or complete result. EAuth tokens are refreshed

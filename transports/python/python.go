@@ -31,10 +31,17 @@ const (
 
 // Config configures the Python command bridge transport.
 type Config struct {
+	// Command is the executable used to run the Salt bridge helper.
 	Command string
-	Args    []string
-	Dir     string
-	Env     []string
+
+	// Args are appended to Command when starting the bridge helper.
+	Args []string
+
+	// Dir is the optional working directory for the bridge helper process.
+	Dir string
+
+	// Env contains additional environment variables for the helper process.
+	Env []string
 }
 
 // Transport implements a capability-limited Python command bridge.

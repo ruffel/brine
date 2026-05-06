@@ -10,6 +10,7 @@ import (
 	"github.com/ruffel/brine"
 )
 
+// ErrInvalidStateReturn matches Salt state returns that cannot be decoded.
 var ErrInvalidStateReturn = errors.New("brine/states: invalid state return")
 
 // Return is a decoded state return for one minion, keyed by Salt's state chunk ID.

@@ -39,16 +39,27 @@ const (
 
 // Config configures a rest_cherrypy transport.
 type Config struct {
-	BaseURL         string
-	HTTPClient      *http.Client
-	Auth            Authenticator
+	// BaseURL is the root Salt API URL, such as http://127.0.0.1:8000.
+	BaseURL string
+
+	// HTTPClient sends Salt API requests. If nil, http.DefaultClient is used.
+	HTTPClient *http.Client
+
+	// Auth supplies Salt API authentication tokens. If nil, no token is sent.
+	Auth Authenticator
+
+	// JobPollInterval controls jobs.lookup_jid polling for asynchronous jobs.
+	// A non-positive value uses the transport default.
 	JobPollInterval time.Duration
+
 	// JobWaitTimeout bounds Job.Wait polling for asynchronous local jobs. When
 	// set, missing expected minions are returned as execution failures instead
 	// of polling indefinitely. A zero value keeps waiting until the caller's
 	// context is canceled.
 	JobWaitTimeout time.Duration
-	LocalRunMode   LocalRunMode
+
+	// LocalRunMode selects direct local calls or async-backed local Run calls.
+	LocalRunMode LocalRunMode
 }
 
 // Authenticator provides Salt API authentication tokens. Implementations may

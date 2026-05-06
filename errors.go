@@ -7,11 +7,22 @@ import (
 )
 
 var (
-	ErrTransport           = errors.New("brine: transport error")
-	ErrAuth                = errors.New("brine: authentication error")
-	ErrProtocol            = errors.New("brine: protocol error")
-	ErrUnsupported         = errors.New("brine: unsupported operation")
-	ErrExecution           = errors.New("brine: execution error")
+	// ErrTransport matches network, process, and I/O transport failures.
+	ErrTransport = errors.New("brine: transport error")
+
+	// ErrAuth matches Salt authentication and authorization failures.
+	ErrAuth = errors.New("brine: authentication error")
+
+	// ErrProtocol matches malformed or unexpected Salt transport payloads.
+	ErrProtocol = errors.New("brine: protocol error")
+
+	// ErrUnsupported matches operations unavailable in a transport.
+	ErrUnsupported = errors.New("brine: unsupported operation")
+
+	// ErrExecution matches Salt execution failures after transport success.
+	ErrExecution = errors.New("brine: execution error")
+
+	// ErrEventStreamConsumed matches attempts to reuse consumed event streams.
 	ErrEventStreamConsumed = errors.New("brine: event stream consumed")
 )
 
