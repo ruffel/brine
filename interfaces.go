@@ -72,7 +72,10 @@ type EventStream interface {
 	Close() error
 }
 
-// UnsupportedTransport provides default unsupported implementations for transport methods.
+// UnsupportedTransport provides default implementations that return
+// UnsupportedError for every Transport method. Transport authors embed this
+// struct and override only the methods their transport supports, ensuring
+// unimplemented operations fail explicitly rather than panicking.
 type UnsupportedTransport struct{}
 
 func (UnsupportedTransport) Close() error { return nil }

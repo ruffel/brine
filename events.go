@@ -149,7 +149,9 @@ type observedEvent func()
 
 // AsyncObserver delivers events to another observer from a bounded background
 // queue. Close must be called to stop the background goroutine; it blocks
-// until the goroutine has exited.
+// until the goroutine has exited. Events remaining in the buffer at close time
+// are dropped; callers that need reliable delivery should wait for completion
+// before calling Close.
 type AsyncObserver struct {
 	next    Observer
 	queue   chan observedEvent
@@ -255,7 +257,17 @@ func isTerminalEvent(event Event) bool {
 	}
 }
 
-// StreamEvents adapts an EventStream to an iterator.
+// StreamEvents adapts an EventStream to an iterator. The stream is not closed
+// by the iterator; the caller is responsible for closing it.
+//
+// Usage:
+//
+//	for event, err := range brine.StreamEvents(ctx, stream) {
+//	    if err != nil {
+//	        return err
+//	    }
+//	    // handle event
+//	}
 func StreamEvents(ctx context.Context, stream EventStream) iter.Seq2[Event, error] {
 	return func(yield func(Event, error) bool) {
 		for {
