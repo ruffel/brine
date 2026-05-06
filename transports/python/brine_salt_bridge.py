@@ -57,6 +57,8 @@ def run_local(request: dict[str, Any]) -> dict[str, Any]:
     target_type = target.get("type") or "glob"
     args = request.get("args") or []
     kwargs = request.get("kwargs") or {}
+    options = request.get("options") or {}
+    timeout = options.get("timeout") or None
 
     if not function:
         return {"error": {"kind": "protocol", "message": "missing function"}}
@@ -73,6 +75,7 @@ def run_local(request: dict[str, Any]) -> dict[str, Any]:
         args,
         tgt_type="list",
         kwarg=kwargs,
+        timeout=timeout,
     ):
         if not isinstance(node, dict) or not node:
             continue

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/ruffel/brine"
 	"github.com/stretchr/testify/assert"
@@ -202,6 +203,8 @@ func TestMakeBridgeRequest(t *testing.T) {
 		brine.Compound("G@role:web"),
 		brine.Args("uptime"),
 		brine.Kwargs(map[string]any{"prepend_path": "/usr/local/bin"}),
+		brine.FullReturn(true),
+		brine.ModuleTimeout(1500*time.Millisecond),
 		brine.Metadata("trace_id", "abc"),
 	))
 	require.NoError(t, err)
@@ -210,6 +213,8 @@ func TestMakeBridgeRequest(t *testing.T) {
 	assert.Equal(t, "G@role:web", payload.Target.Expression)
 	assert.Equal(t, []any{"uptime"}, payload.Args)
 	assert.Equal(t, map[string]any{"prepend_path": "/usr/local/bin"}, payload.Kwargs)
+	assert.True(t, payload.Options.FullReturn)
+	assert.Equal(t, 2, payload.Options.TimeoutSeconds)
 	assert.Equal(t, map[string]any{"trace_id": "abc"}, payload.Metadata)
 
 	runner, err := makeBridgeRequest(brine.Runner("manage.alived"))

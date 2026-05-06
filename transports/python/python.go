@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/ruffel/brine"
 	"github.com/ruffel/brine/internal/resultaccumulator"
@@ -62,7 +63,8 @@ type bridgeTarget struct {
 }
 
 type bridgeOptions struct {
-	FullReturn bool `json:"full_return,omitempty"` //nolint:tagliatelle // Bridge protocol mirrors Salt lowstate naming.
+	FullReturn     bool `json:"full_return,omitempty"` //nolint:tagliatelle // Bridge protocol mirrors Salt lowstate naming.
+	TimeoutSeconds int  `json:"timeout,omitempty"`
 }
 
 type bridgeResponse struct {
@@ -297,7 +299,10 @@ func makeBridgeRequest(req brine.Request) (bridgeRequest, error) {
 		Function: req.Function,
 		Args:     append([]any(nil), req.Args...),
 		Kwargs:   cloneMap(req.Kwargs),
-		Options:  bridgeOptions{FullReturn: req.Options.FullReturn},
+		Options: bridgeOptions{
+			FullReturn:     req.Options.FullReturn,
+			TimeoutSeconds: durationSecondsCeil(req.Options.ModuleTimeout),
+		},
 		Metadata: cloneMap(req.Metadata),
 	}
 
@@ -311,6 +316,14 @@ func makeBridgeRequest(req brine.Request) (bridgeRequest, error) {
 	}
 
 	return payload, nil
+}
+
+func durationSecondsCeil(duration time.Duration) int {
+	if duration <= 0 {
+		return 0
+	}
+
+	return int((duration + time.Second - 1) / time.Second)
 }
 
 func normalizeBridgeLocal(req brine.Request, body []byte) (*brine.Result, error) {
