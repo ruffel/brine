@@ -97,6 +97,7 @@ func (r *Result) Failures() []MinionResult {
 		if ret.Failure != nil || ret.RetCode != 0 {
 			if ret.Failure == nil {
 				ret.Failure = &Failure{Kind: FailureRetCode, Message: fmt.Sprintf("retcode %d", ret.RetCode)}
+				r.ByMinion[minion] = ret
 			}
 
 			failures = append(failures, ret)
