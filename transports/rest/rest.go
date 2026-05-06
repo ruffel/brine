@@ -150,42 +150,6 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 	return t.runDirect(ctx, req)
 }
 
-func (t *Transport) shouldRunLocalAsync(ctx context.Context) bool {
-	switch t.localRunMode {
-	case LocalRunModeAsync:
-		return true
-	case LocalRunModeDirect:
-		return false
-	case LocalRunModeAuto:
-		return brine.HasEmitter(ctx)
-	default:
-		return true
-	}
-}
-
-func (t *Transport) runLocalAsync(ctx context.Context, req brine.Request) (*brine.Result, error) {
-	job, err := t.Start(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	return job.Wait(ctx)
-}
-
-func (t *Transport) runDirect(ctx context.Context, req brine.Request) (*brine.Result, error) {
-	payload, err := lowstatePayload(req)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := t.post(ctx, payload)
-	if err != nil {
-		return nil, err
-	}
-
-	return normalize(req, body)
-}
-
 // Start dispatches asynchronous Salt work through REST.
 func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, error) {
 	if err := req.Validate(); err != nil {
@@ -229,6 +193,42 @@ func responsiveMinions(result *brine.Result) []string {
 	}
 
 	return minions
+}
+
+func (t *Transport) shouldRunLocalAsync(ctx context.Context) bool {
+	switch t.localRunMode {
+	case LocalRunModeAsync:
+		return true
+	case LocalRunModeDirect:
+		return false
+	case LocalRunModeAuto:
+		return brine.HasEmitter(ctx)
+	default:
+		return true
+	}
+}
+
+func (t *Transport) runLocalAsync(ctx context.Context, req brine.Request) (*brine.Result, error) {
+	job, err := t.Start(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return job.Wait(ctx)
+}
+
+func (t *Transport) runDirect(ctx context.Context, req brine.Request) (*brine.Result, error) {
+	payload, err := lowstatePayload(req)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := t.post(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return normalize(req, body)
 }
 
 func (t *Transport) post(ctx context.Context, payload any) ([]byte, error) {

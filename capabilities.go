@@ -10,19 +10,62 @@ import (
 type Capability string
 
 const (
-	CapSynchronousRun   Capability = "run.sync"
-	CapLocalRun         Capability = "local.run"
-	CapLocalStart       Capability = "local.start"
-	CapRunnerRun        Capability = "runner.run"
-	CapRunnerStart      Capability = "runner.start"
-	CapWheelRun         Capability = "wheel.run"
-	CapWheelStart       Capability = "wheel.start"
-	CapLowstate         Capability = "lowstate"
-	CapEvents           Capability = "events"
-	CapJobLookup        Capability = "jobs.lookup"
+	// CapSynchronousRun indicates the transport supports blocking Run calls
+	// that return a completed Result. Required by all synchronous workflows.
+	CapSynchronousRun Capability = "run.sync"
+
+	// CapLocalRun indicates the transport can execute Salt local (minion-targeted)
+	// commands synchronously via Run.
+	CapLocalRun Capability = "local.run"
+
+	// CapLocalStart indicates the transport can fire Salt local commands
+	// asynchronously via Start, returning a Job for later Wait or Events.
+	CapLocalStart Capability = "local.start"
+
+	// CapRunnerRun indicates the transport can execute Salt runner modules
+	// (master-side) synchronously via Run.
+	CapRunnerRun Capability = "runner.run"
+
+	// CapRunnerStart indicates the transport can fire Salt runner modules
+	// asynchronously via Start.
+	CapRunnerStart Capability = "runner.start"
+
+	// CapWheelRun indicates the transport can execute Salt wheel modules
+	// (master-side admin operations) synchronously via Run.
+	CapWheelRun Capability = "wheel.run"
+
+	// CapWheelStart indicates the transport can fire Salt wheel modules
+	// asynchronously via Start.
+	CapWheelStart Capability = "wheel.start"
+
+	// CapLowstate indicates the transport accepts raw lowstate payloads,
+	// bypassing brine's typed request builders.
+	CapLowstate Capability = "lowstate"
+
+	// CapEvents indicates the transport can subscribe to Salt's event bus,
+	// enabling EventStream access via Job.Events or global event listeners.
+	CapEvents Capability = "events"
+
+	// CapJobLookup indicates the transport can poll for async job results
+	// via Salt's jobs.lookup_jid runner, used by Job.Wait.
+	CapJobLookup Capability = "jobs.lookup"
+
+	// CapTargetResolution indicates the transport can resolve a target
+	// expression to a concrete list of responsive minion IDs via Resolve.
 	CapTargetResolution Capability = "targets.resolve"
-	CapBatch            Capability = "batch"
+
+	// CapBatch indicates the transport supports Salt's batch execution mode,
+	// where commands are applied to minions in sized groups.
+	CapBatch Capability = "batch"
+
+	// CapStreamingReturns indicates the transport delivers per-minion results
+	// incrementally via the event stream as each minion responds, rather than
+	// waiting for all minions to complete.
 	CapStreamingReturns Capability = "returns.stream"
+
+	// CapRunScopedReturns indicates the transport emits progress events
+	// (expected minion counts, per-minion returns) during synchronous Run
+	// calls, enabling observers to track execution progress in real time.
 	CapRunScopedReturns Capability = "returns.run_scoped"
 )
 
