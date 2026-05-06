@@ -460,7 +460,8 @@ func TestRunBareFalseMinionReturn(t *testing.T) {
 
 	failure := result.ByMinion["minion-2"].Failure
 	require.NotNil(t, failure)
-	assert.Equal(t, brine.FailureNoReturn, failure.Kind)
+	assert.Equal(t, brine.FailureRetCode, failure.Kind)
+	assert.Empty(t, result.Missing)
 	assert.Equal(t, 1, result.ByMinion["minion-2"].RetCode)
 }
 

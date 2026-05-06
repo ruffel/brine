@@ -41,6 +41,19 @@ func TestRunLocalStateFailure(t *testing.T) {
 	assert.Equal(t, brine.FailureUnknown, failure.Kind)
 }
 
+func TestRunLocalBareFalseIsNotNoReturn(t *testing.T) {
+	t.Parallel()
+
+	transport := newHelperTransport(t, `{"local":{"by_minion":{"minion-1":{"return":false}}}}`)
+	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.List("minion-1")))
+	require.NoError(t, err)
+	require.False(t, result.OK())
+	failure := result.ByMinion["minion-1"].Failure
+	require.NotNil(t, failure)
+	assert.Equal(t, brine.FailureRetCode, failure.Kind)
+	assert.Empty(t, result.Missing)
+}
+
 func TestRunRunnerScalar(t *testing.T) {
 	t.Parallel()
 

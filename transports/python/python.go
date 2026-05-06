@@ -426,7 +426,7 @@ func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionRe
 		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", item.RetCode), Raw: append([]byte(nil), item.Raw...)}
 	case isBareFalse(item.Return):
 		ret.RetCode = 1
-		ret.Failure = &brine.Failure{Kind: brine.FailureNoReturn, Message: "minion returned false", Raw: append([]byte(nil), item.Return...)}
+		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: "minion returned false", Raw: append([]byte(nil), item.Return...)}
 	case isStateRequest(req):
 		ret.Failure = stateFailure(item.Return)
 		if ret.Failure != nil {
