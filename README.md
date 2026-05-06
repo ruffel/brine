@@ -78,7 +78,7 @@ REST remains the production-oriented backend for the current Salt `v3006` localh
 | event stream | best-effort SSE | no |
 | raw lowstate | yes | no |
 
-Use `just contract-rest` and `just contract-python` against the Docker Salt topology to verify advertised transport behavior.
+Use `just contract-rest` and `just contract-python` against the Docker Salt topology to verify advertised transport behavior. Use `just compat` to print a REST/Python contract compatibility table for a quick parity snapshot.
 
 ## Foundational module helpers
 

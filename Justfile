@@ -45,6 +45,10 @@ contract-rest: integration-ready
 contract-python: integration-ready
     BRINE_INTEGRATION=1 go test -tags=integration ./transports/python -run TestIntegrationPythonContracts -count=1 -v
 
+# Print REST/Python contract compatibility table against the Salt integration environment
+compat: integration-ready
+    BRINE_INTEGRATION=1 go run ./cmd/brine-compatcheck
+
 # Run all REST integration tests against the Salt integration environment
 integration-test-rest: integration-ready
     BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -count=1 -v

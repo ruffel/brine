@@ -571,6 +571,8 @@ Recently completed:
 - [x] Re-evaluate Python transport need.
 - [x] Implement MVP Python command bridge for local synchronous execution.
 - [x] Add Docker-backed Python `brinetest` contract recipe.
+- [x] Add REST/Python compatibility table command.
+- [x] Document Python bridge deployment options.
 - [x] Add foundational local execution examples for service status and command output.
 - [x] Add foundational typed helpers for cmd, service, and network execution modules.
 - [x] Start Phase 7 request middleware and orchestration integration examples.

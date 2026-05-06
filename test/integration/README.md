@@ -65,6 +65,12 @@ Run Python command bridge contract/parity tests against the live Salt environmen
 just contract-python
 ```
 
+Print a REST/Python compatibility table from the contract suites:
+
+```sh
+just compat
+```
+
 Run all REST integration tests against the live Salt environment:
 
 ```sh
