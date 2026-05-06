@@ -7,7 +7,7 @@ import (
 	"slices"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/internal/saltreturn"
+	"github.com/ruffel/brine/transportkit"
 )
 
 type responseEnvelope struct {
@@ -174,7 +174,7 @@ func bareFalseFailure(req *brine.Request, raw json.RawMessage) *brine.Failure {
 		return nil
 	}
 
-	return saltreturn.BareFalseFailure(req.Function, raw)
+	return transportkit.BareFalseFailure(req.Function, raw)
 }
 
 func stateFailure(req *brine.Request, raw json.RawMessage) *brine.Failure {
@@ -182,7 +182,7 @@ func stateFailure(req *brine.Request, raw json.RawMessage) *brine.Failure {
 		return nil
 	}
 
-	return saltreturn.StateFailure(req.Function, raw)
+	return transportkit.StateFailure(req.Function, raw)
 }
 
 func normalizeLowstateScalar(result *brine.Result, returns []json.RawMessage) error {
@@ -205,7 +205,7 @@ func normalizeLowstateScalar(result *brine.Result, returns []json.RawMessage) er
 func normalizeScalar(result *brine.Result, raw json.RawMessage) {
 	result.Scalar = append([]byte(nil), raw...)
 
-	if failure := saltreturn.ScalarFailure(raw); failure != nil {
+	if failure := transportkit.ScalarFailure(raw); failure != nil {
 		result.Failure = failure
 	}
 }

@@ -12,8 +12,7 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/internal/resultaccumulator"
-	"github.com/ruffel/brine/internal/saltreturn"
+	"github.com/ruffel/brine/transportkit"
 )
 
 const (
@@ -295,7 +294,7 @@ func normalizeBridgeScalar(req brine.Request, body []byte) (*brine.Result, error
 	}
 
 	result := &brine.Result{Request: &req, Raw: append([]byte(nil), body...), Scalar: append([]byte(nil), last.Scalar...)}
-	if failure := saltreturn.ScalarFailure(last.Scalar); failure != nil {
+	if failure := transportkit.ScalarFailure(last.Scalar); failure != nil {
 		result.Failure = failure
 	}
 
@@ -364,11 +363,11 @@ func normalizeBridgeResponse(req brine.Request, response bridgeResponse, raw []b
 
 type bridgeAccumulator struct {
 	req brine.Request
-	acc *resultaccumulator.Accumulator
+	acc *transportkit.Accumulator
 }
 
 func newBridgeAccumulator(req brine.Request) *bridgeAccumulator {
-	return &bridgeAccumulator{req: req, acc: resultaccumulator.New(req)}
+	return &bridgeAccumulator{req: req, acc: transportkit.NewAccumulator(req)}
 }
 
 func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
@@ -440,7 +439,7 @@ func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionRe
 		Return:  append([]byte(nil), item.Return...),
 		Raw:     firstRaw(item.Raw, item.Return),
 	}
-	falseFailure := saltreturn.BareFalseFailure(req.Function, item.Return)
+	falseFailure := transportkit.BareFalseFailure(req.Function, item.Return)
 
 	switch {
 	case item.Error != "":
@@ -448,8 +447,8 @@ func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionRe
 	case falseFailure != nil:
 		ret.RetCode = 1
 		ret.Failure = falseFailure
-	case saltreturn.IsStateFunction(req.Function):
-		ret.Failure = saltreturn.StateFailure(req.Function, item.Return)
+	case transportkit.IsStateFunction(req.Function):
+		ret.Failure = transportkit.StateFailure(req.Function, item.Return)
 		if ret.Failure != nil {
 			ret.RetCode = 1
 		} else {

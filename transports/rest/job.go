@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/internal/resultaccumulator"
+	"github.com/ruffel/brine/transportkit"
 )
 
 const defaultJobLookupPollInterval = time.Second
@@ -169,7 +169,7 @@ func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 	waitCtx, cancelWait := j.waitContext(ctx)
 	defer cancelWait()
 
-	accumulator := resultaccumulator.New(j.req)
+	accumulator := transportkit.NewAccumulator(j.req)
 	if len(j.expected) > 0 {
 		accumulator.SetExpected(waitCtx, j.jid, j.expected)
 	} else {
@@ -402,7 +402,7 @@ func waitJobLookupPollOrEvent(
 	ctx context.Context,
 	interval time.Duration,
 	events <-chan localJobReturn,
-	accumulator *resultaccumulator.Accumulator,
+	accumulator *transportkit.Accumulator,
 ) error {
 	if events == nil {
 		return waitJobLookupPoll(ctx, interval)
