@@ -139,10 +139,12 @@ func TestLocalRunModeCapabilities(t *testing.T) {
 	asyncTransport, err := New(Config{BaseURL: "http://127.0.0.1:8000"})
 	require.NoError(t, err)
 	assert.True(t, asyncTransport.Capabilities().Supports(brine.CapRunScopedReturns))
+	assert.True(t, asyncTransport.Capabilities().Supports(brine.CapBatch))
 
 	directTransport, err := New(Config{BaseURL: "http://127.0.0.1:8000", LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
 	assert.False(t, directTransport.Capabilities().Supports(brine.CapRunScopedReturns))
+	assert.True(t, directTransport.Capabilities().Supports(brine.CapBatch))
 }
 
 func TestRunLocalObservedConsumesSSEBeforeLookupReconciliation(t *testing.T) {
@@ -355,6 +357,34 @@ func TestRunLocalObservedReturnsPartialWhenLookupFailsAfterSSE(t *testing.T) {
 	assert.True(t, recorder.hasMinionReturnRaw("minion-1", `"jid":"jid-1"`))
 }
 
+func TestRejectsBatchForRunnerAndWheelRequests(t *testing.T) {
+	t.Parallel()
+
+	transport, err := New(Config{BaseURL: "http://127.0.0.1:8000", Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		req  brine.Request
+	}{
+		{name: "runner", req: brine.Runner("manage.alived", brine.BatchCount(1))},
+		{name: "wheel", req: brine.Wheel("key.list_all", brine.BatchCount(1))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := transport.Run(context.Background(), tt.req)
+			require.ErrorIs(t, err, brine.ErrUnsupported)
+
+			var unsupported *brine.UnsupportedError
+			require.ErrorAs(t, err, &unsupported)
+			assert.Equal(t, brine.CapBatch, unsupported.Capability)
+		})
+	}
+}
+
 func TestRunLocalAsyncModePreservesTargetArgsKwargsAndOptions(t *testing.T) {
 	t.Parallel()
 
@@ -408,6 +438,38 @@ func TestRunLocalAsyncModePreservesTargetArgsKwargsAndOptions(t *testing.T) {
 	assert.Equal(t, "runner", lookup["client"])
 	assert.Equal(t, "jobs.lookup_jid", lookup["fun"])
 	assert.Equal(t, []any{"jid-1"}, lookup["arg"])
+}
+
+func TestRunLocalAsyncModeIncludesBatch(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+		captured = append(captured, payload[0])
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1","minion-2"]}]}`))
+		case "runner":
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.List("minion-1", "minion-2"), brine.BatchCount(1)))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	require.Len(t, captured, 2)
+	assert.Equal(t, "local_async", captured[0]["client"])
+	assert.Equal(t, "1", captured[0]["batch"])
 }
 
 func TestRunLocalDefaultUsesAsyncLookupWithoutObserver(t *testing.T) {
@@ -867,18 +929,12 @@ func TestRESTPayloadTargetsAndOptions(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnsupportedBatch(t *testing.T) {
+func TestRunDirectBatchPayload(t *testing.T) {
 	t.Parallel()
 
-	transport, err := New(Config{BaseURL: "http://127.0.0.1:8000", Auth: NoAuth{}})
-	require.NoError(t, err)
-
-	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*"), brine.BatchCount(2)))
-	require.ErrorIs(t, err, brine.ErrUnsupported)
-
-	var unsupported *brine.UnsupportedError
-	require.ErrorAs(t, err, &unsupported)
-	assert.Equal(t, brine.CapBatch, unsupported.Capability)
+	captured := runAndCapturePayload(t, brine.Local("test.ping", brine.Glob("*"), brine.BatchCount(2)), `{"return":[{"minion-1":true}]}`)
+	require.Len(t, captured, 1)
+	assert.Equal(t, "2", captured[0]["batch"])
 }
 
 func TestRESTPayloadOmitsRequestMetadata(t *testing.T) {

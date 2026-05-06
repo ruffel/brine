@@ -4,6 +4,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"testing"
 	"time"
@@ -159,6 +160,70 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		require.NoError(t, result.DecodeScalar(&keys))
 		assert.NotEmpty(t, keys)
 	})
+}
+
+func TestIntegrationRESTRunnerAsyncShape(t *testing.T) {
+	env := brinetest.Salt(t)
+	transport, err := New(Config{BaseURL: env.URL, Auth: integrationAuth(env)})
+	require.NoError(t, err)
+
+	minions := expectedMinionIDs(env.ExpectedMinions)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	body, err := transport.post(ctx, []map[string]any{{
+		"client": "runner_async",
+		"fun":    "manage.alived",
+	}})
+	require.NoError(t, err)
+
+	jid := runnerAsyncJID(t, body)
+	require.NotEmpty(t, jid)
+
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		lookup, err := transport.post(ctx, []map[string]any{{
+			"client": "runner",
+			"fun":    "jobs.lookup_jid",
+			"arg":    []any{jid},
+		}})
+		require.NoError(collect, err)
+
+		alive := runnerAsyncLookupReturn(collect, lookup)
+		for _, minion := range minions {
+			assert.Contains(collect, alive, minion)
+		}
+	}, 30*time.Second, 500*time.Millisecond)
+}
+
+func runnerAsyncLookupReturn(t require.TestingT, body []byte) []string {
+	var envelope struct {
+		Return []map[string]struct {
+			Return []string `json:"return"`
+		} `json:"return"`
+	}
+	require.NoError(t, json.Unmarshal(body, &envelope))
+	require.NotEmpty(t, envelope.Return)
+	for _, job := range envelope.Return[0] {
+		if len(job.Return) > 0 {
+			return job.Return
+		}
+	}
+
+	return nil
+}
+
+func runnerAsyncJID(t *testing.T, body []byte) string {
+	t.Helper()
+
+	var envelope struct {
+		Return []struct {
+			JID string `json:"jid"`
+		} `json:"return"`
+	}
+	require.NoError(t, json.Unmarshal(body, &envelope))
+	require.NotEmpty(t, envelope.Return)
+
+	return envelope.Return[0].JID
 }
 
 func TestIntegrationRESTDirectLocalRunMode(t *testing.T) {

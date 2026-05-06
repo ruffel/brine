@@ -124,6 +124,7 @@ func capabilitiesForLocalRunMode(mode LocalRunMode) brine.Capabilities {
 		brine.CapEvents,
 		brine.CapJobLookup,
 		brine.CapTargetResolution,
+		brine.CapBatch,
 		brine.CapStreamingReturns,
 	}
 
@@ -213,6 +214,10 @@ func (t *Transport) Resolve(ctx context.Context, target brine.Target) ([]string,
 func (t *Transport) requireSupportedOptions(req brine.Request, operation string) error {
 	if !requestUsesBatch(req) {
 		return nil
+	}
+
+	if req.Kind != brine.KindLocal {
+		return &brine.UnsupportedError{Capability: brine.CapBatch, Operation: operation}
 	}
 
 	if t.caps.Supports(brine.CapBatch) {
