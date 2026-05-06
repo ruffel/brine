@@ -148,7 +148,13 @@ func (t *Transport) Info(ctx context.Context) (brine.TransportInfo, error) {
 			Capabilities: t.caps,
 		}
 
-		if saltVersion, ok := t.detectSaltVersion(ctx); ok {
+		// Apply a bounded timeout to the version probe so a slow or
+		// unresponsive Salt API cannot block all subsequent Info callers
+		// indefinitely behind the sync.Once.
+		probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		if saltVersion, ok := t.detectSaltVersion(probeCtx); ok {
 			info.SaltVersion = saltVersion
 		}
 
