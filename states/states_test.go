@@ -144,6 +144,30 @@ func TestDecodeRejectsMalformedStateReturns(t *testing.T) {
 	}
 }
 
+func TestIsMalformedStateReturn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want bool
+	}{
+		{name: "render error string", raw: json.RawMessage(`"State lock is held"`), want: true},
+		{name: "render error list", raw: json.RawMessage(`["State lock is held", "try again later"]`), want: true},
+		{name: "state return map", raw: json.RawMessage(`{"state_|-ok_|-ok_|-test":{"result":true}}`), want: false},
+		{name: "scalar boolean", raw: json.RawMessage(`false`), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, IsMalformedStateReturn(tt.raw))
+			assert.Equal(t, tt.want, IsMalformed(tt.raw))
+		})
+	}
+}
+
 func TestRunSLSPreservesTypedResultWithExecutionError(t *testing.T) {
 	t.Parallel()
 

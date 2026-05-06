@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/internal/saltreturn"
 )
 
 // ErrInvalidStateReturn matches Salt state returns that cannot be decoded.
@@ -190,22 +190,19 @@ func (s State) NoOp() bool { return s.Succeeded() && !s.Changed() }
 
 // IsStateRequest reports whether req invokes a Salt state function.
 func IsStateRequest(req brine.Request) bool {
-	return req.Kind == brine.KindLocal && strings.HasPrefix(req.Function, "state.")
+	return req.Kind == brine.KindLocal && saltreturn.IsStateFunction(req.Function)
+}
+
+// IsMalformedStateReturn reports whether raw has a known malformed state-return shape.
+func IsMalformedStateReturn(raw json.RawMessage) bool {
+	return saltreturn.IsMalformedState(raw)
 }
 
 // IsMalformed reports whether raw has a known malformed state-return shape.
+//
+// Deprecated: use IsMalformedStateReturn.
 func IsMalformed(raw json.RawMessage) bool {
-	var text string
-	if err := json.Unmarshal(raw, &text); err == nil {
-		return true
-	}
-
-	var messages []string
-	if err := json.Unmarshal(raw, &messages); err == nil {
-		return true
-	}
-
-	return false
+	return IsMalformedStateReturn(raw)
 }
 
 // MalformedStateRetryPredicate matches failed minion state returns that should
@@ -220,7 +217,7 @@ func MalformedStateRetryPredicate(req brine.Request, result brine.MinionResult) 
 		return false
 	}
 
-	return IsMalformed(result.Return)
+	return IsMalformedStateReturn(result.Return)
 }
 
 func cloneRawMap(input map[string]json.RawMessage) map[string]json.RawMessage {
