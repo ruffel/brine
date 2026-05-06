@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -320,6 +321,99 @@ func TestEventMatchesFilterUsesTagSegmentBoundary(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestSubscribeMalformedMinionReturnFallsBackToRawSalt(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("tag: salt/job/111/ret/minion-1\n"))
+		_, _ = writer.Write([]byte("data: not-json\n\n"))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{JID: "111"})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	event, err := stream.Recv(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, brine.EventRawSalt, event.Type)
+	assert.Equal(t, "111", event.JID)
+	assert.Equal(t, "not-json", string(event.Raw))
+}
+
+func TestSubscribeReportsOversizedSSEFrame(t *testing.T) {
+	t.Parallel()
+
+	oversized := strings.Repeat("x", maxEventFrameSize+1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: " + oversized + "\n\n"))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err = stream.Recv(ctx)
+	require.ErrorIs(t, err, brine.ErrTransport)
+}
+
+func TestSubscribeProtocolErrorIncludesBodySnippet(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		http.Error(writer, "events unavailable", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	_, err = transport.Subscribe(context.Background(), brine.EventFilter{})
+	require.ErrorIs(t, err, brine.ErrProtocol)
+
+	var protocol *brine.ProtocolError
+	require.True(t, errors.As(err, &protocol))
+	assert.Contains(t, protocol.Snippet, "events unavailable")
+}
+
+func TestEventStreamRecvAfterCloseReturnsEOF(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		if flusher, ok := writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{})
+	require.NoError(t, err)
+	require.NoError(t, stream.Close())
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err = stream.Recv(ctx)
+	require.ErrorIs(t, err, io.EOF)
 }
 
 func TestEventStreamCloseIsIdempotentEnough(t *testing.T) {
