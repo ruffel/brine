@@ -127,11 +127,14 @@ func MultiObserver(observers ...Observer) Observer {
 
 type observedEvent func()
 
-// AsyncObserver delivers events to another observer from a bounded background queue.
+// AsyncObserver delivers events to another observer from a bounded background
+// queue. Close must be called to stop the background goroutine; it blocks
+// until the goroutine has exited.
 type AsyncObserver struct {
 	next    Observer
 	queue   chan observedEvent
 	done    chan struct{}
+	wg      sync.WaitGroup
 	once    sync.Once
 	dropped atomic.Int64
 }
@@ -147,6 +150,9 @@ func NewAsyncObserver(next Observer, bufferSize int) *AsyncObserver {
 		queue: make(chan observedEvent, bufferSize),
 		done:  make(chan struct{}),
 	}
+
+	observer.wg.Add(1)
+
 	go observer.run()
 
 	return observer
@@ -173,9 +179,10 @@ func (o *AsyncObserver) OnEvent(ctx context.Context, event Event) {
 	}
 }
 
-// Close stops the background observer.
+// Close stops the background goroutine and blocks until it has exited.
 func (o *AsyncObserver) Close() error {
 	o.once.Do(func() { close(o.done) })
+	o.wg.Wait()
 
 	return nil
 }
@@ -184,6 +191,8 @@ func (o *AsyncObserver) Close() error {
 func (o *AsyncObserver) Dropped() int64 { return o.dropped.Load() }
 
 func (o *AsyncObserver) run() {
+	defer o.wg.Done()
+
 	for {
 		select {
 		case <-o.done:
