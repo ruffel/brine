@@ -41,7 +41,11 @@ type saltEventFrame struct {
 	data json.RawMessage
 }
 
-// Subscribe opens Salt's rest_cherrypy server-sent event stream.
+// Subscribe opens Salt's rest_cherrypy server-sent event stream. The returned
+// EventStream must be closed by the caller. Recv blocks on the underlying HTTP
+// connection between context checks, so callers that need prompt cancellation
+// should call Close concurrently rather than relying solely on context
+// cancellation.
 func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (brine.EventStream, error) {
 	requestCtx, cancel := context.WithCancel(ctx)
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, t.baseURL+eventStreamPath, nil)
@@ -104,6 +108,10 @@ func validateStreamResponse(response *http.Response) error {
 	return nil
 }
 
+// Recv blocks until the next event matching the stream's filter is available.
+// Context cancellation is checked between frames; however, if the SSE
+// connection is idle, Recv may block in the underlying read until Close is
+// called or the server sends data.
 func (s *eventStream) Recv(ctx context.Context) (brine.Event, error) {
 	for {
 		if err := ctx.Err(); err != nil {
