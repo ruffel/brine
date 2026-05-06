@@ -195,6 +195,13 @@ func mergeRetryResult(dst *Result, src *Result) {
 	}
 
 	dst.Expected = unionStrings(dst.Expected, src.Expected)
+
+	// Clear a stale result-level failure if all minion entries now pass.
+	// The initial attempt may have set Failure (e.g. for no-return or
+	// scalar errors), but retry recovery should allow OK() to succeed.
+	if dst.Failure != nil && len(dst.Failures()) == 0 {
+		dst.Failure = nil
+	}
 }
 
 func cloneResult(result *Result) *Result {
@@ -203,6 +210,7 @@ func cloneResult(result *Result) *Result {
 	}
 
 	clone := *result
+	clone.Failure = cloneFailure(result.Failure)
 	clone.Expected = append([]string(nil), result.Expected...)
 	clone.Missing = append([]string(nil), result.Missing...)
 	clone.Scalar = append([]byte(nil), result.Scalar...)
@@ -217,10 +225,22 @@ func cloneResult(result *Result) *Result {
 
 func cloneMinionResult(result MinionResult) MinionResult {
 	clone := result
+	clone.Failure = cloneFailure(result.Failure)
 	clone.Return = append([]byte(nil), result.Return...)
 	clone.Raw = append([]byte(nil), result.Raw...)
 
 	return clone
+}
+
+func cloneFailure(f *Failure) *Failure {
+	if f == nil {
+		return nil
+	}
+
+	clone := *f
+	clone.Raw = append([]byte(nil), f.Raw...)
+
+	return &clone
 }
 
 func removeString(values []string, value string) []string {
