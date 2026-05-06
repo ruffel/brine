@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ruffel/brine"
 	"github.com/stretchr/testify/assert"
@@ -45,6 +46,41 @@ func TestSubscribeReceivesFilteredSSEEvents(t *testing.T) {
 
 	_, err = stream.Recv(context.Background())
 	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestSubscribeRecvTimeoutDoesNotCloseStream(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("\n"))
+		if flusher, ok := writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+
+		time.Sleep(30 * time.Millisecond)
+		_, _ = writer.Write([]byte("tag: salt/job/111/ret/minion-1\n"))
+		_, _ = writer.Write([]byte("data: {\"jid\":\"111\",\"id\":\"minion-1\"}\n\n"))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{JID: "111"})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	_, err = stream.Recv(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	event, err := stream.Recv(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "111", event.JID)
+	assert.Equal(t, "minion-1", event.Minion)
 }
 
 func TestSubscribeNormalizesMinionReturnEvents(t *testing.T) {

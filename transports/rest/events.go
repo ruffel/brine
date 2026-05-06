@@ -21,16 +21,18 @@ const (
 	eventStreamPath             = "/events"
 	initialEventFrameBufferSize = 64 * 1024
 	maxEventFrameSize           = 10 * 1024 * 1024
+	eventStreamEventBufferSize  = 16
 	saltTagRoot                 = "salt"
 	saltTagJob                  = "job"
 	saltTagReturn               = "ret"
 )
 
 type eventStream struct {
-	body    io.ReadCloser
-	cancel  context.CancelFunc
-	scanner *bufio.Scanner
-	filter  brine.EventFilter
+	body   io.ReadCloser
+	cancel context.CancelFunc
+	filter brine.EventFilter
+	events chan streamEvent
+	done   chan struct{}
 
 	closeOnce sync.Once
 	closeErr  error
@@ -41,9 +43,14 @@ type saltEventFrame struct {
 	data json.RawMessage
 }
 
+type streamEvent struct {
+	event brine.Event
+	err   error
+}
+
 // Subscribe opens Salt's rest_cherrypy server-sent event stream. The returned
-// EventStream must be closed by the caller. Recv closes the underlying stream
-// when its context is canceled so idle SSE reads unblock promptly.
+// EventStream must be closed by the caller. Recv respects per-call context
+// cancellation without closing the underlying stream.
 func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (brine.EventStream, error) {
 	requestCtx, cancel := context.WithCancel(ctx)
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, t.baseURL+eventStreamPath, nil)
@@ -77,12 +84,16 @@ func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (br
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, initialEventFrameBufferSize), maxEventFrameSize)
 
-	return &eventStream{
-		body:    response.Body,
-		cancel:  cancel,
-		scanner: scanner,
-		filter:  filter,
-	}, nil
+	stream := &eventStream{
+		body:   response.Body,
+		cancel: cancel,
+		filter: filter,
+		events: make(chan streamEvent, eventStreamEventBufferSize),
+		done:   make(chan struct{}),
+	}
+	go stream.read(scanner)
+
+	return stream, nil
 }
 
 func validateStreamResponse(response *http.Response) error {
@@ -108,40 +119,23 @@ func validateStreamResponse(response *http.Response) error {
 
 // Recv blocks until the next event matching the stream's filter is available.
 func (s *eventStream) Recv(ctx context.Context) (brine.Event, error) {
-	done := make(chan struct{})
-	defer close(done)
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = s.Close()
-		case <-done:
-		}
-	}()
-
-	for {
-		if err := ctx.Err(); err != nil {
-			return brine.Event{}, err
+	select {
+	case <-ctx.Done():
+		return brine.Event{}, ctx.Err()
+	case item, ok := <-s.events:
+		if !ok {
+			return brine.Event{}, io.EOF
 		}
 
-		frame, err := s.nextFrame()
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				return brine.Event{}, ctxErr
-			}
-
-			return brine.Event{}, err
-		}
-
-		event := frame.event()
-		if eventMatchesFilter(event, s.filter, frame.tag) {
-			return event, nil
-		}
+		return item.event, item.err
 	}
 }
 
 func (s *eventStream) Close() error {
 	s.closeOnce.Do(func() {
+		if s.done != nil {
+			close(s.done)
+		}
 		if s.cancel != nil {
 			s.cancel()
 		}
@@ -154,12 +148,59 @@ func (s *eventStream) Close() error {
 	return s.closeErr
 }
 
-func (s *eventStream) nextFrame() (saltEventFrame, error) {
+func (s *eventStream) read(scanner *bufio.Scanner) {
+	defer close(s.events)
+
+	for {
+		frame, err := nextFrame(scanner)
+		if err != nil {
+			s.sendReadError(err)
+
+			return
+		}
+
+		event := frame.event()
+		if !eventMatchesFilter(event, s.filter, frame.tag) {
+			continue
+		}
+
+		if !s.send(streamEvent{event: event}) {
+			return
+		}
+	}
+}
+
+func (s *eventStream) sendReadError(err error) {
+	if errors.Is(err, io.EOF) {
+		_ = s.send(streamEvent{err: err})
+
+		return
+	}
+
+	select {
+	case <-s.done:
+		return
+	default:
+	}
+
+	_ = s.send(streamEvent{err: err})
+}
+
+func (s *eventStream) send(item streamEvent) bool {
+	select {
+	case <-s.done:
+		return false
+	case s.events <- item:
+		return true
+	}
+}
+
+func nextFrame(scanner *bufio.Scanner) (saltEventFrame, error) {
 	var frame saltEventFrame
 	var data bytes.Buffer
 
-	for s.scanner.Scan() {
-		line := s.scanner.Text()
+	for scanner.Scan() {
+		line := scanner.Text()
 		if line == "" {
 			if frame.tag != "" || data.Len() > 0 {
 				frame.data = append([]byte(nil), bytes.TrimSpace(data.Bytes())...)
@@ -188,7 +229,7 @@ func (s *eventStream) nextFrame() (saltEventFrame, error) {
 		}
 	}
 
-	if err := s.scanner.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		return saltEventFrame{}, brine.NewTransportError("read events", err)
 	}
 
