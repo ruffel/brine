@@ -88,10 +88,6 @@ func (c *Client) Unwrap() Handler { return c.transport }
 
 // Run validates and executes req.
 func (c *Client) Run(ctx context.Context, req Request, opts ...RunOption) (*Result, error) {
-	if c == nil || c.handler == nil {
-		return nil, errors.New("brine: client is nil or uninitialized")
-	}
-
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -134,10 +130,6 @@ func (c *Client) Run(ctx context.Context, req Request, opts ...RunOption) (*Resu
 
 // Start dispatches asynchronous Salt work.
 func (c *Client) Start(ctx context.Context, req Request) (Job, error) {
-	if c == nil || c.transport == nil {
-		return nil, errors.New("brine: client is nil or uninitialized")
-	}
-
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -147,46 +139,26 @@ func (c *Client) Start(ctx context.Context, req Request) (Job, error) {
 
 // Events opens a global Salt event stream.
 func (c *Client) Events(ctx context.Context, filter EventFilter) (EventStream, error) {
-	if c == nil || c.transport == nil {
-		return nil, errors.New("brine: client is nil or uninitialized")
-	}
-
 	return c.transport.Subscribe(ctx, filter)
 }
 
 // Resolve resolves target to minion IDs where supported.
 func (c *Client) Resolve(ctx context.Context, target Target) ([]string, error) {
-	if c == nil || c.transport == nil {
-		return nil, errors.New("brine: client is nil or uninitialized")
-	}
-
 	return c.transport.Resolve(ctx, target)
 }
 
 // Capabilities returns transport capabilities.
 func (c *Client) Capabilities() Capabilities {
-	if c == nil || c.transport == nil {
-		return NewCapabilities()
-	}
-
 	return c.transport.Capabilities()
 }
 
 // Info returns transport diagnostic metadata.
 func (c *Client) Info(ctx context.Context) (TransportInfo, error) {
-	if c == nil || c.transport == nil {
-		return TransportInfo{}, errors.New("brine: client is nil or uninitialized")
-	}
-
 	return c.transport.Info(ctx)
 }
 
 // Close closes the underlying transport.
 func (c *Client) Close() error {
-	if c == nil || c.transport == nil {
-		return nil
-	}
-
 	return c.transport.Close()
 }
 
