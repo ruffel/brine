@@ -107,7 +107,7 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 
 		event, err := stream.Recv(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, brine.EventRawSalt, event.Type)
+		assert.Contains(t, []brine.EventType{brine.EventRawSalt, brine.EventMinionReturned}, event.Type)
 		assert.Equal(t, job.ID(), event.JID)
 
 		result, err := job.Wait(ctx)

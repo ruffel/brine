@@ -329,6 +329,62 @@ func TestRunLocalObservedReturnsPartialWhenLookupFailsAfterSSE(t *testing.T) {
 	assert.True(t, recorder.hasMinionReturnRaw("minion-1", `"jid":"jid-1"`))
 }
 
+func TestRunLocalAsyncModePreservesTargetArgsKwargsAndOptions(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+		captured = append(captured, payload[0])
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1","minion-2"]}]}`))
+		case "runner":
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local(
+		"state.sls",
+		brine.List("minion-1", "minion-2"),
+		brine.Args("brine.success"),
+		brine.Kwargs(map[string]any{"test": true}),
+		brine.FullReturn(true),
+		brine.ModuleTimeout(3*time.Second),
+		brine.GatherJobTimeout(4*time.Second),
+		brine.BatchCount(2),
+	))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	require.Len(t, captured, 2)
+
+	start := captured[0]
+	assert.Equal(t, "local_async", start["client"])
+	assert.Equal(t, "state.sls", start["fun"])
+	assert.Equal(t, []any{"minion-1", "minion-2"}, start["tgt"])
+	assert.Equal(t, "list", start["tgt_type"])
+	assert.Equal(t, []any{"brine.success"}, start["arg"])
+	assert.Equal(t, map[string]any{"test": true}, start["kwarg"])
+	assert.Equal(t, true, start["full_return"])
+	assert.Equal(t, float64(3), start["timeout"])
+	assert.Equal(t, float64(4), start["gather_job_timeout"])
+	assert.Equal(t, "2", start["batch"])
+
+	lookup := captured[1]
+	assert.Equal(t, "runner", lookup["client"])
+	assert.Equal(t, "jobs.lookup_jid", lookup["fun"])
+	assert.Equal(t, []any{"jid-1"}, lookup["arg"])
+}
+
 func TestRunLocalDefaultUsesAsyncLookupWithoutObserver(t *testing.T) {
 	t.Parallel()
 
@@ -411,7 +467,9 @@ func TestRunBareFalseMinionReturn(t *testing.T) {
 func TestRunRunnerScalar(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&captured))
 		_, _ = writer.Write([]byte(`{"return":[["minion-1","minion-2"]]}`))
 	}))
 	defer server.Close()
@@ -425,6 +483,52 @@ func TestRunRunnerScalar(t *testing.T) {
 	var minions []string
 	require.NoError(t, result.DecodeScalar(&minions))
 	assert.Equal(t, []string{"minion-1", "minion-2"}, minions)
+	require.Len(t, captured, 1)
+	assert.Equal(t, "runner", captured[0]["client"])
+	assert.Equal(t, "manage.alived", captured[0]["fun"])
+}
+
+func TestRunScalarFailureMarksResultNotOK(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte(`{"return":[{"error":"boom"}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Wheel("key.list_all"))
+	require.NoError(t, err)
+	require.NotNil(t, result.Failure)
+	assert.False(t, result.OK())
+	assert.Equal(t, brine.FailureMalformed, result.Failure.Kind)
+}
+
+func TestRunWheelScalarPayload(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		assert.NoError(t, json.NewDecoder(request.Body).Decode(&captured))
+		_, _ = writer.Write([]byte(`{"return":[{"minions":["minion-1"]}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Wheel("key.list_all", brine.Kwargs(map[string]any{"match": "minion-*"})))
+	require.NoError(t, err)
+
+	var keys map[string][]string
+	require.NoError(t, result.DecodeScalar(&keys))
+	assert.Equal(t, []string{"minion-1"}, keys["minions"])
+	require.Len(t, captured, 1)
+	assert.Equal(t, "wheel", captured[0]["client"])
+	assert.Equal(t, "key.list_all", captured[0]["fun"])
+	assert.Equal(t, map[string]any{"match": "minion-*"}, captured[0]["kwarg"])
 }
 
 func TestNoAuthOmitsToken(t *testing.T) {
@@ -953,8 +1057,28 @@ func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 	transport, err := New(Config{BaseURL: "http://127.0.0.1:8000", Auth: NoAuth{}})
 	require.NoError(t, err)
 
-	_, err = transport.Start(context.Background(), brine.Runner("manage.alived"))
-	require.ErrorIs(t, err, brine.ErrUnsupported)
+	tests := []struct {
+		name string
+		req  brine.Request
+		cap  brine.Capability
+	}{
+		{name: "runner", req: brine.Runner("manage.alived"), cap: brine.CapRunnerStart},
+		{name: "wheel", req: brine.Wheel("key.list_all"), cap: brine.CapWheelStart},
+		{name: "lowstate", req: lowstate.Request(lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstate},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := transport.Start(context.Background(), tt.req)
+			require.ErrorIs(t, err, brine.ErrUnsupported)
+
+			var unsupported *brine.UnsupportedError
+			require.ErrorAs(t, err, &unsupported)
+			assert.Equal(t, tt.cap, unsupported.Capability)
+		})
+	}
 }
 
 func decodeRESTPayload(t *testing.T, request *http.Request) {
