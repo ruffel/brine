@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/ruffel/brine"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +44,17 @@ func TestNilAuthOmitsToken(t *testing.T) {
 	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
 	require.NoError(t, err)
 	assert.True(t, result.OK())
+}
+
+func TestStaticTokenRejectsEmptyToken(t *testing.T) {
+	t.Parallel()
+
+	transport, err := New(Config{BaseURL: "http://127.0.0.1:8000", Auth: StaticToken("")})
+	require.NoError(t, err)
+
+	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "static token cannot be empty")
 }
 
 func TestPAMAuthLogin(t *testing.T) {
@@ -119,6 +131,80 @@ func TestPAMAuthSharesConcurrentLogin(t *testing.T) {
 	require.NoError(t, <-errCh)
 	require.NoError(t, <-errCh)
 	assert.Equal(t, 1, loginCount)
+}
+
+func TestPAMAuthRejectsMalformedLoginResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "malformed json", body: `{`},
+		{name: "missing return", body: `{}`},
+		{name: "empty return", body: `{"return":[]}`},
+		{name: "missing token", body: `{"return":[{"expire":4102444800}]}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi"), LocalRunMode: LocalRunModeDirect})
+			require.NoError(t, err)
+
+			_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+			require.ErrorIs(t, err, brine.ErrProtocol)
+		})
+	}
+}
+
+func TestPAMAuthReportsLoginAuthErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status int
+	}{
+		{name: "unauthorized", status: http.StatusUnauthorized},
+		{name: "forbidden", status: http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				http.Error(writer, "no", tt.status)
+			}))
+			defer server.Close()
+
+			transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi"), LocalRunMode: LocalRunModeDirect})
+			require.NoError(t, err)
+
+			_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+			require.ErrorIs(t, err, brine.ErrAuth)
+		})
+	}
+}
+
+func TestPAMAuthRefreshesNearExpiryTokens(t *testing.T) {
+	t.Parallel()
+
+	auth := PAMAuth("saltapi", "saltapi")
+	auth.cacheToken("stale", time.Now().Add(30*time.Second))
+	_, ok := auth.cachedToken()
+	assert.False(t, ok)
+
+	auth.cacheToken("fresh", time.Now().Add(2*time.Minute))
+	token, ok := auth.cachedToken()
+	assert.True(t, ok)
+	assert.Equal(t, "fresh", token)
 }
 
 func TestPAMAuthRetriesOnceAfterUnauthorized(t *testing.T) {
