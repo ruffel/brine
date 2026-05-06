@@ -29,10 +29,18 @@ type localJob struct {
 	expectedKnown bool
 	expected      []string
 
-	mu     sync.Mutex
-	result *brine.Result
-	err    error
-	done   bool
+	mu      sync.Mutex
+	waiting *waitCall
+	result  *brine.Result
+	err     error
+	done    bool
+}
+
+type waitCall struct {
+	done     chan struct{}
+	result   *brine.Result
+	err      error
+	terminal bool
 }
 
 func newLocalJob(transport *Transport, req brine.Request, body []byte) (*localJob, error) {
@@ -99,23 +107,50 @@ func (j *localJob) Wait(ctx context.Context) (*brine.Result, error) {
 
 		return result, err
 	}
+
+	if j.waiting != nil {
+		call := j.waiting
+		j.mu.Unlock()
+
+		return waitForCall(ctx, call)
+	}
+
+	call := &waitCall{done: make(chan struct{})}
+	j.waiting = call
 	j.mu.Unlock()
 
-	result, err, terminal := j.wait(ctx)
-	if !terminal {
-		return result, err
-	}
+	call.result, call.err, call.terminal = j.wait(ctx)
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
-	if !j.done {
-		j.result = result
-		j.err = err
+	if j.waiting == call {
+		j.waiting = nil
+	}
+
+	if call.terminal && !j.done {
+		j.result = call.result
+		j.err = call.err
 		j.done = true
 	}
 
-	return j.result, j.err
+	if j.done {
+		call.result = j.result
+		call.err = j.err
+	}
+
+	close(call.done)
+
+	return call.result, call.err
+}
+
+func waitForCall(ctx context.Context, call *waitCall) (*brine.Result, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-call.done:
+		return call.result, call.err
+	}
 }
 
 func (j *localJob) Events(ctx context.Context) (brine.EventStream, error) {

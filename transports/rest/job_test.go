@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -169,6 +170,62 @@ func TestStartLocalAsyncWaitUsesListTargetWhenStartOmitsMinions(t *testing.T) {
 	assert.True(t, result.OK())
 	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
 	assert.Equal(t, 3, requestCount)
+}
+
+func TestStartLocalAsyncWaitConcurrentCallsSharePolling(t *testing.T) {
+	t.Parallel()
+
+	var requestCount atomic.Int32
+	lookupStarted := make(chan struct{})
+	releaseLookup := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		count := requestCount.Add(1)
+		decodeRESTPayload(t, request)
+
+		switch count {
+		case 1:
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":["minion-1"]}]}`))
+		case 2:
+			close(lookupStarted)
+			<-releaseLookup
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+		default:
+			t.Fatalf("unexpected request %d", count)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, JobPollInterval: time.Hour})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.List("minion-1")))
+	require.NoError(t, err)
+
+	type waitResult struct {
+		result *brine.Result
+		err    error
+	}
+	waits := make(chan waitResult, 2)
+	go func() {
+		result, err := job.Wait(context.Background())
+		waits <- waitResult{result: result, err: err}
+	}()
+
+	<-lookupStarted
+	go func() {
+		result, err := job.Wait(context.Background())
+		waits <- waitResult{result: result, err: err}
+	}()
+
+	close(releaseLookup)
+	first := <-waits
+	second := <-waits
+
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	require.NotNil(t, first.result)
+	assert.Same(t, first.result, second.result)
+	assert.Equal(t, int32(2), requestCount.Load())
 }
 
 func TestStartLocalAsyncWaitFailsWhenTargetMatchesNoMinions(t *testing.T) {
