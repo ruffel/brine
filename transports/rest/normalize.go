@@ -18,6 +18,7 @@ type fullMinionReturn struct {
 	JID     string          `json:"jid"`
 	Return  json.RawMessage `json:"ret"`
 	RetCode int             `json:"retcode"`
+	Success *bool           `json:"success"`
 	Error   string          `json:"error"`
 }
 
@@ -99,11 +100,7 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 			Raw:     append([]byte(nil), raw...),
 		}
 
-		if full.Error != "" {
-			ret.Failure = &brine.Failure{Kind: brine.FailureMinionException, Message: full.Error, Raw: append([]byte(nil), raw...)}
-		} else if full.RetCode != 0 {
-			ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", full.RetCode), Raw: append([]byte(nil), raw...)}
-		}
+		ret.Failure = fullReturnFailure(full, raw)
 
 		return ret
 	}
@@ -115,9 +112,9 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 		Raw:     append([]byte(nil), raw...),
 	}
 
-	if isBareFalse(raw) {
+	if failure := bareFalseFailure(req, raw); failure != nil {
 		ret.RetCode = 1
-		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: "minion returned false", Raw: append([]byte(nil), raw...)}
+		ret.Failure = failure
 	} else if isStateRequest(req) {
 		if failure := stateFailure(raw); failure != nil {
 			ret.RetCode = 1
@@ -129,6 +126,27 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 	}
 
 	return ret
+}
+
+func fullReturnFailure(full fullMinionReturn, raw json.RawMessage) *brine.Failure {
+	switch {
+	case full.Error != "":
+		return &brine.Failure{Kind: brine.FailureMinionException, Message: full.Error, Raw: append([]byte(nil), raw...)}
+	case full.RetCode != 0:
+		return &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", full.RetCode), Raw: append([]byte(nil), raw...)}
+	case full.Success != nil && !*full.Success:
+		return &brine.Failure{Kind: brine.FailureUnknown, Message: "Salt return marked unsuccessful", Raw: append([]byte(nil), raw...)}
+	default:
+		return nil
+	}
+}
+
+func bareFalseFailure(req *brine.Request, raw json.RawMessage) *brine.Failure {
+	if !isBareFalse(raw) || req == nil || req.Kind != brine.KindLocal || req.Function != "test.ping" {
+		return nil
+	}
+
+	return &brine.Failure{Kind: brine.FailureUnknown, Message: "test.ping returned false", Raw: append([]byte(nil), raw...)}
 }
 
 func isBareFalse(raw json.RawMessage) bool {

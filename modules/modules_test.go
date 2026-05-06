@@ -136,6 +136,7 @@ func TestFileExists(t *testing.T) {
 		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
 			require.Equal(t, "file.file_exists", req.Function)
 			require.Equal(t, []any{"/etc/salt/minion.d/brine.conf"}, req.Args)
+			require.True(t, req.Options.FullReturn)
 
 			return localResult(req, map[string]returnValue{"minion-1": {body: `true`}}), nil
 		})
@@ -157,6 +158,7 @@ func TestDirectoryExists(t *testing.T) {
 		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
 			require.Equal(t, "file.directory_exists", req.Function)
 			require.Equal(t, []any{"/etc/salt/minion.d"}, req.Args)
+			require.True(t, req.Options.FullReturn)
 
 			return localResult(req, map[string]returnValue{"minion-1": {body: `true`}}), nil
 		})
@@ -179,6 +181,7 @@ func TestServiceStatus(t *testing.T) {
 			require.Equal(t, "service.status", req.Function)
 			require.Equal(t, []any{"sshd"}, req.Args)
 			require.Empty(t, req.Kwargs)
+			require.True(t, req.Options.FullReturn)
 
 			return localResult(req, map[string]returnValue{"minion-1": {body: `true`}}), nil
 		})
@@ -201,6 +204,7 @@ func TestServiceStatusRegex(t *testing.T) {
 			require.Equal(t, "service.status", req.Function)
 			require.Equal(t, []any{"^(web|db).*"}, req.Args)
 			require.Equal(t, true, req.Kwargs["regex"])
+			require.True(t, req.Options.FullReturn)
 
 			return localResult(req, map[string]returnValue{"minion-1": {body: `{"web":true,"db":false}`}}), nil
 		})

@@ -418,15 +418,16 @@ func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionRe
 		Return:  append([]byte(nil), item.Return...),
 		Raw:     firstRaw(item.Raw, item.Return),
 	}
+	falseFailure := bareFalseFailure(req, item.Return)
 
 	switch {
 	case item.Error != "":
 		ret.Failure = &brine.Failure{Kind: brine.FailureMinionException, Message: item.Error, Raw: append([]byte(nil), item.Raw...)}
 	case item.RetCode != 0:
 		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", item.RetCode), Raw: append([]byte(nil), item.Raw...)}
-	case isBareFalse(item.Return):
+	case falseFailure != nil:
 		ret.RetCode = 1
-		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: "minion returned false", Raw: append([]byte(nil), item.Return...)}
+		ret.Failure = falseFailure
 	case isStateRequest(req):
 		ret.Failure = stateFailure(item.Return)
 		if ret.Failure == nil {
@@ -472,6 +473,14 @@ func unsupportedRunError(kind brine.RequestKind) error {
 
 func isStateRequest(req brine.Request) bool {
 	return req.Kind == brine.KindLocal && strings.HasPrefix(req.Function, "state.")
+}
+
+func bareFalseFailure(req brine.Request, raw json.RawMessage) *brine.Failure {
+	if !isBareFalse(raw) || req.Kind != brine.KindLocal || req.Function != "test.ping" {
+		return nil
+	}
+
+	return &brine.Failure{Kind: brine.FailureUnknown, Message: "test.ping returned false", Raw: append([]byte(nil), raw...)}
 }
 
 func isBareFalse(raw json.RawMessage) bool {

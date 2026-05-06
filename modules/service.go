@@ -20,7 +20,8 @@ type ServiceStatusRegexOptions struct {
 }
 
 // ServiceStatus runs Salt's service.status for one service and decodes a bool
-// service state by minion.
+// service state by minion. It requests Salt full returns so a stopped service
+// reported as false is not confused with an execution failure.
 func ServiceStatus(
 	ctx context.Context,
 	client *brine.Client,
@@ -33,11 +34,14 @@ func ServiceStatus(
 		return nil, err
 	}
 
+	options = append(options, brine.FullReturn(true))
+
 	return RunLocal[bool](ctx, client, brine.Local("service.status", target, options...))
 }
 
 // ServiceStatusRegex runs Salt's service.status with regex=true and decodes a
-// service-state map by minion.
+// service-state map by minion. It requests Salt full returns so false service
+// states are not confused with execution failures.
 func ServiceStatusRegex(
 	ctx context.Context,
 	client *brine.Client,
@@ -55,6 +59,8 @@ func ServiceStatusRegex(
 	if err != nil {
 		return nil, err
 	}
+
+	options = append(options, brine.FullReturn(true))
 
 	return RunLocal[map[string]bool](ctx, client, brine.Local("service.status", target, options...))
 }

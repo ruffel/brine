@@ -460,9 +460,45 @@ func TestRunBareFalseMinionReturn(t *testing.T) {
 
 	failure := result.ByMinion["minion-2"].Failure
 	require.NotNil(t, failure)
-	assert.Equal(t, brine.FailureRetCode, failure.Kind)
+	assert.Equal(t, brine.FailureUnknown, failure.Kind)
 	assert.Empty(t, result.Missing)
 	assert.Equal(t, 1, result.ByMinion["minion-2"].RetCode)
+}
+
+func TestRunBareFalseServiceStatusIsData(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte(`{"return":[{"minion-1":false}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeDirect})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local("service.status", brine.Glob("*"), brine.Args("sshd")))
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+	assert.Nil(t, result.ByMinion["minion-1"].Failure)
+	assert.JSONEq(t, `false`, string(result.ByMinion["minion-1"].Return))
+}
+
+func TestRunFullReturnSuccessFalseFails(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte(`{"return":[{"minion-1":{"ret":true,"retcode":0,"success":false}}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeDirect})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local("service.status", brine.Glob("*"), brine.Args("sshd"), brine.FullReturn(true)))
+	require.NoError(t, err)
+	assert.False(t, result.OK())
+	require.NotNil(t, result.ByMinion["minion-1"].Failure)
+	assert.Equal(t, brine.FailureUnknown, result.ByMinion["minion-1"].Failure.Kind)
 }
 
 func TestRunMalformedStateReturn(t *testing.T) {
