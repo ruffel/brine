@@ -54,6 +54,11 @@ func WithRunObserver(observers ...Observer) RunOption {
 }
 
 // Client executes Salt requests through a Transport.
+//
+// Run is the only client method that applies the configured Handler middleware
+// chain and run-scoped observers. Start, Events, Resolve, Info, Capabilities,
+// and Close deliberately delegate to the underlying Transport because their
+// request and response shapes do not fit the synchronous Run handler model.
 type Client struct {
 	transport Transport
 	handler   Handler
@@ -86,7 +91,11 @@ func New(transport Transport, opts ...ClientOption) (*Client, error) {
 // Unwrap returns the bare transport handler below client middleware.
 func (c *Client) Unwrap() Handler { return c.transport }
 
-// Run validates and executes req.
+// Run validates and executes req through the configured Handler chain.
+//
+// Run installs client-wide and per-call observers as a run-scoped event emitter,
+// emits request lifecycle events, recovers panics from middleware or transports,
+// and converts non-OK Salt results into ExecutionError values.
 func (c *Client) Run(ctx context.Context, req Request, opts ...RunOption) (*Result, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
@@ -128,7 +137,11 @@ func (c *Client) Run(ctx context.Context, req Request, opts ...RunOption) (*Resu
 	return outcome.result, outcome.err
 }
 
-// Start dispatches asynchronous Salt work.
+// Start validates req and dispatches asynchronous Salt work directly through the Transport.
+//
+// Start does not apply Run middleware or run-scoped observers. Callers that need
+// progress events should use the returned Job's Events or Wait methods where the
+// selected transport supports them.
 func (c *Client) Start(ctx context.Context, req Request) (Job, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
@@ -137,12 +150,18 @@ func (c *Client) Start(ctx context.Context, req Request) (Job, error) {
 	return c.transport.Start(ctx, req)
 }
 
-// Events opens a global Salt event stream.
+// Events opens a global Salt event stream directly through the Transport.
+//
+// Events does not apply Run middleware or run-scoped observers; filtering is
+// interpreted by the selected transport.
 func (c *Client) Events(ctx context.Context, filter EventFilter) (EventStream, error) {
 	return c.transport.Subscribe(ctx, filter)
 }
 
-// Resolve resolves target to minion IDs where supported.
+// Resolve resolves target to minion IDs directly through the Transport where supported.
+//
+// Resolve does not apply Run middleware or run-scoped observers. Transports may
+// implement resolution using their own Salt calls.
 func (c *Client) Resolve(ctx context.Context, target Target) ([]string, error) {
 	return c.transport.Resolve(ctx, target)
 }
