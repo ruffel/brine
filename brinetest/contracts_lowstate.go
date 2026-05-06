@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/lowstate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -28,14 +27,14 @@ func verifyLowstateLocalPing(t *testing.T, h Harness) {
 	defer cancel()
 
 	target, targetType := lowstateTarget(t, h.Target)
-	entry := lowstate.Entry{
+	entry := brine.LowstateEntry{
 		Client:  "local",
 		Fun:     "test.ping",
 		Target:  target,
 		TgtType: targetType,
 	}
 
-	result, err := h.Client.Run(ctx, lowstate.Request(entry))
+	result, err := h.Client.Run(ctx, brine.Lowstate(entry))
 	require.NoError(t, err)
 	require.True(t, result.OK())
 	assert.False(t, result.IsLocal())

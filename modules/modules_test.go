@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/lowstate"
 	"github.com/ruffel/brine/modules"
 	"github.com/ruffel/brine/transports/mock"
 	"github.com/stretchr/testify/assert"
@@ -266,7 +265,7 @@ func TestRunLocalRejectsNonLocalRequests(t *testing.T) {
 	}{
 		{name: "runner", req: brine.Runner("jobs.active")},
 		{name: "wheel", req: brine.Wheel("key.list_all")},
-		{name: "lowstate", req: lowstate.Request(lowstate.Entry{Client: "runner", Fun: "jobs.active"})},
+		{name: "lowstate", req: brine.Lowstate(brine.LowstateEntry{Client: "runner", Fun: "jobs.active"})},
 	}
 
 	for _, tt := range tests {

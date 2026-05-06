@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/lowstate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -122,7 +121,7 @@ func TestRESTPayloadOmitsRequestMetadata(t *testing.T) {
 func TestRunRawLowstatePayloadIncludesClient(t *testing.T) {
 	t.Parallel()
 
-	req := lowstate.Request(lowstate.Entry{
+	req := brine.Lowstate(brine.LowstateEntry{
 		Client:  "local",
 		Fun:     "test.ping",
 		Target:  []string{"minion-1", "minion-2"},
@@ -140,9 +139,9 @@ func TestRunRawLowstatePayloadIncludesClient(t *testing.T) {
 func TestRunRawLowstateMultipleEntriesPreservesAllReturns(t *testing.T) {
 	t.Parallel()
 
-	req := lowstate.Request(
-		lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"},
-		lowstate.Entry{Client: "runner", Fun: "jobs.active"},
+	req := brine.Lowstate(
+		brine.LowstateEntry{Client: "local", Fun: "test.ping", Target: "*"},
+		brine.LowstateEntry{Client: "runner", Fun: "jobs.active"},
 	)
 
 	var captured []map[string]any
@@ -170,9 +169,9 @@ func TestRunRawLowstateMultipleEntriesPreservesAllReturns(t *testing.T) {
 func TestRunRawLowstateMultipleEntriesMarksScalarFailure(t *testing.T) {
 	t.Parallel()
 
-	req := lowstate.Request(
-		lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"},
-		lowstate.Entry{Client: "runner", Fun: "bad.runner"},
+	req := brine.Lowstate(
+		brine.LowstateEntry{Client: "local", Fun: "test.ping", Target: "*"},
+		brine.LowstateEntry{Client: "runner", Fun: "bad.runner"},
 	)
 
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

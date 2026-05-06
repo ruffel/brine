@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
-	"github.com/ruffel/brine/lowstate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -460,7 +459,7 @@ func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 	}{
 		{name: "runner", req: brine.Runner("manage.alived"), cap: brine.CapRunnerStart},
 		{name: "wheel", req: brine.Wheel("key.list_all"), cap: brine.CapWheelStart},
-		{name: "lowstate", req: lowstate.Request(lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstateStart},
+		{name: "lowstate", req: brine.Lowstate(brine.LowstateEntry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstateStart},
 	}
 
 	for _, tt := range tests {
