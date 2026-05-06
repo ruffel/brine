@@ -1,9 +1,21 @@
+x-minion: &minion
+  build:
+    context: ./image
+    args:
+      SALT_VERSION: ${BRINE_SALT_VERSION:-3006.9}
+  command: salt-minion -l info
+  depends_on:
+    salt-master:
+      condition: service_healthy
+  volumes:
+    - ./salt/minion.d:/etc/salt/minion.d:ro
+
 services:
   salt-master:
     build:
       context: ./image
       args:
-        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+        SALT_VERSION: ${BRINE_SALT_VERSION:-3006.9}
     hostname: salt-master
     container_name: brine-salt-master
     command: >
@@ -26,40 +38,13 @@ services:
       retries: 30
 
   minion-1:
-    build:
-      context: ./image
-      args:
-        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+    <<: *minion
     hostname: minion-1
-    command: salt-minion -l info
-    depends_on:
-      salt-master:
-        condition: service_healthy
-    volumes:
-      - ./salt/minion.d:/etc/salt/minion.d:ro
 
   minion-2:
-    build:
-      context: ./image
-      args:
-        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+    <<: *minion
     hostname: minion-2
-    command: salt-minion -l info
-    depends_on:
-      salt-master:
-        condition: service_healthy
-    volumes:
-      - ./salt/minion.d:/etc/salt/minion.d:ro
 
   minion-3:
-    build:
-      context: ./image
-      args:
-        SALT_VERSION: ${BRINE_SALT_VERSION:-${SALT_VERSION:-3006.9}}
+    <<: *minion
     hostname: minion-3
-    command: salt-minion -l info
-    depends_on:
-      salt-master:
-        condition: service_healthy
-    volumes:
-      - ./salt/minion.d:/etc/salt/minion.d:ro

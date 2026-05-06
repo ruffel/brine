@@ -60,5 +60,9 @@ printf 'Timed out waiting for Salt integration environment: %s accepted, %s resp
 printf '\nRecent salt-master logs:\n' >&2
 "${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=80 salt-master >&2 || true
 printf '\nRecent minion logs:\n' >&2
-"${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=80 minion-1 minion-2 minion-3 >&2 || true
+minion_names=()
+for i in $(seq 1 "${EXPECTED_MINIONS}"); do
+  minion_names+=("minion-${i}")
+done
+"${COMPOSE_CMD[@]}" -f "${COMPOSE_FILE}" logs --tail=80 "${minion_names[@]}" >&2 || true
 exit 1
