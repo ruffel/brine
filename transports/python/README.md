@@ -9,11 +9,13 @@ not a full REST-parity backend.
 The command bridge currently advertises:
 
 - synchronous local execution (`CapSynchronousRun`, `CapLocalRun`);
-- responsive target resolution through `test.ping` (`CapTargetResolution`).
+- synchronous runner execution (`CapRunnerRun`);
+- responsive target resolution through `test.ping` (`CapTargetResolution`);
+- run-scoped minion return progress during synchronous local runs (`CapRunScopedReturns`).
 
-It intentionally does not advertise runner, wheel, async jobs, global events,
-streaming returns, or raw lowstate. Those operations return `UnsupportedError`
-through the normal Brine transport interface.
+It intentionally does not advertise wheel, async jobs, global events, streaming
+returns, or raw lowstate. Those operations return `UnsupportedError` through the
+normal Brine transport interface.
 
 ## Runtime model
 

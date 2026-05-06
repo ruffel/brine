@@ -427,9 +427,10 @@ Unsupported or limited capabilities:
 - clean async job management across process boundaries.
 
 Implementation status: MVP Option B command bridge is implemented. It starts a
-short-lived helper process per request and advertises only synchronous local
-execution plus responsive target resolution. It streams newline-delimited
-per-minion return frames during `Run` and maps those frames to Brine observer
+short-lived helper process per request and advertises synchronous local
+execution, synchronous runner execution, and responsive target resolution. It
+streams newline-delimited per-minion return frames during local `Run` and maps
+those frames to Brine observer
 events, but it does not provide async jobs or a global event stream. REST remains
 the production-oriented backend; Python provides compatibility coverage for
 foundational local workflows where Salt's Python libraries are available.
@@ -440,8 +441,9 @@ Recommendation:
 - Keep Python in the design as a compatibility backend, not merely a throwaway
   shim.
 - Use the implemented Option B bridge for MVP migration/no-REST environments and
-  advertise only local synchronous execution and target resolution. Treat its
-  streamed frames as run-scoped progress, not async job/event-stream support.
+  advertise local synchronous execution, runner synchronous execution, and target
+  resolution. Treat its streamed frames as run-scoped progress, not async
+  job/event-stream support.
 - If Python is needed as a long-term first-class backend or REST parity is
   required, invest in Option A and run it against the same fixture matrix and
   full `brinetest` suite as REST.
@@ -574,6 +576,7 @@ Recently completed:
 - [x] Re-evaluate Python transport need.
 - [x] Implement MVP Python command bridge for local synchronous execution.
 - [x] Add run-scoped Python minion return streaming through observer events.
+- [x] Add Python synchronous runner support for migration middleware patterns.
 - [x] Add Docker-backed Python `brinetest` contract recipe.
 - [x] Add REST/Python compatibility table command.
 - [x] Document Python bridge deployment options.

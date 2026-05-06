@@ -29,22 +29,23 @@ def main() -> int:
             }
         }
 
-    if response is not None:
-        emit(response)
+    emit(response)
     return 0
 
 
 def handle(request: dict[str, Any]) -> dict[str, Any]:
     kind = request.get("kind")
-    if kind != "local":
-        return {
-            "error": {
-                "kind": "unsupported",
-                "message": f"unsupported request kind {kind!r}",
-            }
-        }
+    if kind == "local":
+        return run_local(request)
+    if kind == "runner":
+        return run_runner(request)
 
-    return run_local(request)
+    return {
+        "error": {
+            "kind": "unsupported",
+            "message": f"unsupported request kind {kind!r}",
+        }
+    }
 
 
 def run_local(request: dict[str, Any]) -> dict[str, Any]:
@@ -80,6 +81,28 @@ def run_local(request: dict[str, Any]) -> dict[str, Any]:
         emit(minion_frame(str(minion), data))
 
     return {"type": "done"}
+
+
+def run_runner(request: dict[str, Any]) -> dict[str, Any]:
+    import salt.config  # Imported lazily so protocol tests do not need Salt installed.
+    import salt.runner  # Imported lazily so protocol tests do not need Salt installed.
+
+    function = request.get("function")
+    args = request.get("args") or []
+    kwargs = request.get("kwargs") or {}
+    if not function:
+        return {"error": {"kind": "protocol", "message": "missing function"}}
+
+    opts = salt.config.master_config("/etc/salt/master")
+    opts.update({"quiet": True})
+    runner = salt.runner.RunnerClient(opts)
+    try:
+        value = runner.cmd(function, args, kwarg=kwargs)
+    except TypeError:
+        # Older Salt runner.cmd signatures do not accept kwarg.
+        value = runner.cmd(function, args)
+
+    return {"type": "scalar", "scalar": value}
 
 
 def emit(frame: dict[str, Any]) -> None:

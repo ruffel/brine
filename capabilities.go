@@ -23,6 +23,7 @@ const (
 	CapTargetResolution Capability = "targets.resolve"
 	CapBatch            Capability = "batch"
 	CapStreamingReturns Capability = "returns.stream"
+	CapRunScopedReturns Capability = "returns.run_scoped"
 )
 
 // Capabilities is an immutable set of transport capabilities.

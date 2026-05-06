@@ -14,11 +14,12 @@ const (
 	CategoryState       = "state"
 	CategoryAsync       = "async"
 	CategoryEvents      = "events"
+	CategoryProgress    = "progress"
 	CategoryTargets     = "targets"
 	CategoryLowstate    = "lowstate"
 	CategoryUnsupported = "unsupported"
 
-	initialContractCapacity = 24
+	initialContractCapacity = 26
 )
 
 // StateNames names deterministic test states available to contract tests.
@@ -78,6 +79,7 @@ func AllContracts() []TestCase {
 	contracts = append(contracts, stateContracts()...)
 	contracts = append(contracts, asyncContracts()...)
 	contracts = append(contracts, eventContracts()...)
+	contracts = append(contracts, progressContracts()...)
 	contracts = append(contracts, targetContracts()...)
 	contracts = append(contracts, lowstateContracts()...)
 	contracts = append(contracts, unsupportedContracts()...)

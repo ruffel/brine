@@ -68,8 +68,9 @@ type bridgeOptions struct {
 }
 
 type bridgeResponse struct {
-	Local *bridgeLocalResult `json:"local,omitempty"`
-	Error *bridgeError       `json:"error,omitempty"`
+	Local  *bridgeLocalResult `json:"local,omitempty"`
+	Scalar json.RawMessage    `json:"scalar,omitempty"`
+	Error  *bridgeError       `json:"error,omitempty"`
 }
 
 type bridgeFrame struct {
@@ -82,6 +83,7 @@ type bridgeFrame struct {
 	Return       json.RawMessage    `json:"return,omitempty"`
 	Raw          json.RawMessage    `json:"raw,omitempty"`
 	ErrorMessage string             `json:"error_message,omitempty"` //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
+	Scalar       json.RawMessage    `json:"scalar,omitempty"`
 	Local        *bridgeLocalResult `json:"local,omitempty"`
 	Error        *bridgeError       `json:"error,omitempty"`
 }
@@ -119,7 +121,9 @@ func New(config Config) (*Transport, error) {
 		caps: brine.NewCapabilities(
 			brine.CapSynchronousRun,
 			brine.CapLocalRun,
+			brine.CapRunnerRun,
 			brine.CapTargetResolution,
+			brine.CapRunScopedReturns,
 		),
 	}, nil
 }
@@ -132,22 +136,32 @@ func (t *Transport) Info(context.Context) (brine.TransportInfo, error) {
 	return brine.TransportInfo{Name: transportName, Capabilities: t.caps}, nil
 }
 
-// Run implements brine.Handler for local requests.
+// Run implements brine.Handler for local and runner requests.
 func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
 
-	if req.Kind != brine.KindLocal {
+	switch req.Kind {
+	case brine.KindLocal:
+		payload, err := makeBridgeRequest(req)
+		if err != nil {
+			return nil, err
+		}
+
+		return t.invokeLocal(ctx, req, payload)
+	case brine.KindRunner:
+		payload, err := makeBridgeRequest(req)
+		if err != nil {
+			return nil, err
+		}
+
+		return t.invokeScalar(ctx, req, payload)
+	case brine.KindWheel, brine.KindLowstate:
+		return nil, unsupportedRunError(req.Kind)
+	default:
 		return nil, unsupportedRunError(req.Kind)
 	}
-
-	payload, err := makeBridgeRequest(req)
-	if err != nil {
-		return nil, err
-	}
-
-	return t.invokeLocal(ctx, req, payload)
 }
 
 // Resolve resolves responsive minions by running test.ping through the bridge
@@ -220,24 +234,85 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 	return accumulator.result(), nil
 }
 
-func makeBridgeRequest(req brine.Request) (bridgeRequest, error) {
-	spec, err := brine.DescribeTarget(req.Target)
+func (t *Transport) invokeScalar(ctx context.Context, req brine.Request, payload bridgeRequest) (*brine.Result, error) {
+	input, err := json.Marshal(payload)
 	if err != nil {
-		return bridgeRequest{}, fmt.Errorf("python: %w", err)
+		return nil, fmt.Errorf("marshal Python bridge request: %w", err)
 	}
 
-	return bridgeRequest{
+	args := append([]string(nil), t.args...)
+	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
+	cmd.Dir = t.dir
+	cmd.Env = append(cmd.Environ(), t.env...)
+	cmd.Stdin = bytes.NewReader(input)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, brine.NewTransportError("python bridge", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String())))
+	}
+
+	return normalizeBridgeScalar(req, stdout.Bytes())
+}
+
+func normalizeBridgeScalar(req brine.Request, body []byte) (*brine.Result, error) {
+	var last bridgeFrame
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, initialBridgeFrameBufferBytes), maxBridgeFrameBytes)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+
+		if err := json.Unmarshal(line, &last); err != nil {
+			return nil, brine.NewProtocolError(snippet(line), err)
+		}
+
+		if last.Error != nil {
+			return nil, bridgeErrorToBrine(last.Error)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, brine.NewTransportError("python bridge stdout", err)
+	}
+
+	if len(last.Scalar) == 0 {
+		return nil, brine.NewProtocolError(snippet(body), errors.New("python bridge response missing scalar result"))
+	}
+
+	result := &brine.Result{Request: &req, Raw: append([]byte(nil), body...), Scalar: append([]byte(nil), last.Scalar...)}
+	if isFailureScalar(last.Scalar) {
+		result.Failure = &brine.Failure{Kind: brine.FailureMalformed, Message: "scalar response indicates failure", Raw: append([]byte(nil), last.Scalar...)}
+	}
+
+	return result, nil
+}
+
+func makeBridgeRequest(req brine.Request) (bridgeRequest, error) {
+	payload := bridgeRequest{
 		Kind:     req.Kind.String(),
 		Function: req.Function,
-		Target: bridgeTarget{
-			Type:       spec.Type,
-			Expression: spec.Expression,
-		},
 		Args:     append([]any(nil), req.Args...),
 		Kwargs:   cloneMap(req.Kwargs),
 		Options:  bridgeOptions{FullReturn: req.Options.FullReturn},
 		Metadata: cloneMap(req.Metadata),
-	}, nil
+	}
+
+	if req.Kind == brine.KindLocal {
+		spec, err := brine.DescribeTarget(req.Target)
+		if err != nil {
+			return bridgeRequest{}, fmt.Errorf("python: %w", err)
+		}
+
+		payload.Target = bridgeTarget{Type: spec.Type, Expression: spec.Expression}
+	}
+
+	return payload, nil
 }
 
 func normalizeBridgeLocal(req brine.Request, body []byte) (*brine.Result, error) {
@@ -439,7 +514,7 @@ func bridgeErrorToBrine(err *bridgeError) error {
 func unsupportedRunError(kind brine.RequestKind) error {
 	switch kind {
 	case brine.KindRunner:
-		return &brine.UnsupportedError{Capability: brine.CapRunnerRun, Operation: "Run"}
+		return nil
 	case brine.KindWheel:
 		return &brine.UnsupportedError{Capability: brine.CapWheelRun, Operation: "Run"}
 	case brine.KindLowstate:
@@ -459,6 +534,18 @@ func isBareFalse(raw json.RawMessage) bool {
 	var b bool
 
 	return json.Unmarshal(raw, &b) == nil && !b
+}
+
+func isFailureScalar(raw json.RawMessage) bool {
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &body); err == nil {
+		_, hasError := body["error"]
+		_, hasException := body["exception"]
+
+		return hasError || hasException
+	}
+
+	return false
 }
 
 func stateFailure(raw json.RawMessage) *brine.Failure {

@@ -41,11 +41,24 @@ func TestRunLocalStateFailure(t *testing.T) {
 	assert.Equal(t, brine.FailureUnknown, failure.Kind)
 }
 
+func TestRunRunnerScalar(t *testing.T) {
+	t.Parallel()
+
+	transport := newHelperTransport(t, `{"type":"scalar","scalar":["minion-1","minion-2"]}`)
+	result, err := transport.Run(context.Background(), brine.Runner("manage.alived"))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+
+	var alive []string
+	require.NoError(t, result.DecodeScalar(&alive))
+	assert.Equal(t, []string{"minion-1", "minion-2"}, alive)
+}
+
 func TestRunRejectsUnsupportedKinds(t *testing.T) {
 	t.Parallel()
 
 	transport := newHelperTransport(t, `{}`)
-	_, err := transport.Run(context.Background(), brine.Runner("manage.alived"))
+	_, err := transport.Run(context.Background(), brine.Wheel("key.list_all"))
 	require.ErrorIs(t, err, brine.ErrUnsupported)
 }
 
@@ -109,6 +122,11 @@ func TestMakeBridgeRequest(t *testing.T) {
 	assert.Equal(t, []any{"uptime"}, payload.Args)
 	assert.Equal(t, map[string]any{"prepend_path": "/usr/local/bin"}, payload.Kwargs)
 	assert.Equal(t, map[string]any{"trace_id": "abc"}, payload.Metadata)
+
+	runner, err := makeBridgeRequest(brine.Runner("manage.alived"))
+	require.NoError(t, err)
+	assert.Equal(t, "runner", runner.Kind)
+	assert.Empty(t, runner.Target.Expression)
 }
 
 //nolint:paralleltest // This helper runs as a subprocess for other parallel tests.
