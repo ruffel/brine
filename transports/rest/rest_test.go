@@ -1196,6 +1196,38 @@ func TestStartLocalAsyncAndWait(t *testing.T) {
 	assert.Equal(t, 2, requestCount)
 }
 
+func TestStartLocalAsyncWaitFailsWhenTargetMatchesNoMinions(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		_, _ = writer.Write([]byte(`{"return":[{"jid":"jid","minions":[]}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("does-not-exist")))
+	require.NoError(t, err)
+
+	local, ok := job.(brine.LocalJob)
+	require.True(t, ok)
+	assert.Empty(t, local.ExpectedMinions())
+
+	result, err := job.Wait(context.Background())
+	require.Error(t, err)
+	require.ErrorIs(t, err, brine.ErrExecution)
+	require.NotNil(t, result)
+	assert.False(t, result.OK())
+	assert.Equal(t, brine.FailureNoReturn, result.Failure.Kind)
+	assert.Empty(t, result.Returned())
+	assert.Equal(t, 1, requestCount)
+}
+
 func TestStartLocalAsyncWaitWrappedLookupData(t *testing.T) {
 	t.Parallel()
 

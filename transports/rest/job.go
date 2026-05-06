@@ -18,15 +18,16 @@ type asyncStartEnvelope struct {
 }
 
 type asyncStartReturn struct {
-	JID     string   `json:"jid"`
-	Minions []string `json:"minions"`
+	JID     string    `json:"jid"`
+	Minions *[]string `json:"minions,omitempty"`
 }
 
 type localJob struct {
-	transport *Transport
-	jid       string
-	req       brine.Request
-	expected  []string
+	transport     *Transport
+	jid           string
+	req           brine.Request
+	expectedKnown bool
+	expected      []string
 
 	mu     sync.Mutex
 	result *brine.Result
@@ -44,12 +45,17 @@ func newLocalJob(transport *Transport, req brine.Request, body []byte) (*localJo
 		return nil, brine.NewProtocolError(snippet(body), errors.New("async start response missing jid"))
 	}
 
-	return &localJob{
-		transport: transport,
-		jid:       parsed.Return[0].JID,
-		req:       req,
-		expected:  append([]string(nil), parsed.Return[0].Minions...),
-	}, nil
+	job := &localJob{
+		transport:     transport,
+		jid:           parsed.Return[0].JID,
+		req:           req,
+		expectedKnown: parsed.Return[0].Minions != nil,
+	}
+	if parsed.Return[0].Minions != nil {
+		job.expected = append([]string(nil), (*parsed.Return[0].Minions)...)
+	}
+
+	return job, nil
 }
 
 func (j *localJob) ID() string { return j.jid }
@@ -100,6 +106,10 @@ func (j *localJob) Events(ctx context.Context) (brine.EventStream, error) {
 }
 
 func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
+	if result, err, ok := j.noMinionsResult(); ok {
+		return result, err, true
+	}
+
 	waitCtx, cancelWait := j.waitContext(ctx)
 	defer cancelWait()
 
@@ -125,7 +135,7 @@ func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 
 		accumulator.MergeResult(waitCtx, result)
 		current := accumulator.Result()
-		if jobLookupComplete(current, j.expected) {
+		if jobLookupComplete(current, j.expectedKnown, j.expected) {
 			result, err := resultWithExecutionError(current)
 
 			return result, err, true
@@ -137,6 +147,26 @@ func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 			return current, brine.NewExecutionError(current, err), j.isConfiguredWaitTimeout(err)
 		}
 	}
+}
+
+func (j *localJob) noMinionsResult() (*brine.Result, error, bool) {
+	if !j.expectedKnown || len(j.expected) != 0 {
+		return &brine.Result{}, nil, false
+	}
+
+	req := j.req
+	result := &brine.Result{
+		JID:      j.jid,
+		Request:  &req,
+		Expected: []string{},
+		ByMinion: map[string]brine.MinionResult{},
+		Failure: &brine.Failure{
+			Kind:    brine.FailureNoReturn,
+			Message: "Salt target matched no minions",
+		},
+	}
+
+	return result, brine.NewExecutionError(result, nil), true
 }
 
 func (j *localJob) waitContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -296,12 +326,12 @@ func applyJobExpected(result *brine.Result, jid string, expected []string) {
 	}
 }
 
-func jobLookupComplete(result *brine.Result, expected []string) bool {
-	if len(expected) == 0 {
+func jobLookupComplete(result *brine.Result, expectedKnown bool, expected []string) bool {
+	if !expectedKnown {
 		return len(result.ByMinion) > 0
 	}
 
-	return len(result.Missing) == 0
+	return len(expected) > 0 && len(result.Missing) == 0
 }
 
 func resultWithExecutionError(result *brine.Result) (*brine.Result, error) {
