@@ -52,6 +52,10 @@ type streamEvent struct {
 // EventStream must be closed by the caller. Recv respects per-call context
 // cancellation without closing the underlying stream.
 func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (brine.EventStream, error) {
+	return t.subscribe(ctx, filter, true)
+}
+
+func (t *Transport) subscribe(ctx context.Context, filter brine.EventFilter, retryAuth bool) (brine.EventStream, error) {
 	requestCtx, cancel := context.WithCancel(ctx)
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, t.baseURL+eventStreamPath, nil)
 	if err != nil {
@@ -68,11 +72,18 @@ func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (br
 	}
 
 	// The response body is owned by eventStream on success and closed by Close.
-	response, err := t.client.Do(request) //nolint:bodyclose
+	response, err := t.client.Do(request)
 	if err != nil {
 		cancel()
 
 		return nil, brine.NewTransportError("events", err)
+	}
+
+	if response.StatusCode == http.StatusUnauthorized && retryAuth && t.invalidateAuthToken() {
+		_ = response.Body.Close()
+		cancel()
+
+		return t.subscribe(ctx, filter, false)
 	}
 
 	if err := validateStreamResponse(response); err != nil {

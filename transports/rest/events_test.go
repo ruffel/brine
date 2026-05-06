@@ -183,6 +183,53 @@ func TestSubscribeReportsAuthErrors(t *testing.T) {
 	require.ErrorIs(t, err, brine.ErrAuth)
 }
 
+func TestSubscribeRetriesOnceAfterUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	loginCount := 0
+	eventsCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/login":
+			loginCount++
+			token := "expired"
+			if loginCount > 1 {
+				token = "fresh"
+			}
+
+			_, _ = writer.Write([]byte(`{"return":[{"token":"` + token + `","expire":4102444800}]}`))
+		case eventStreamPath:
+			eventsCount++
+			if request.Header.Get("X-Auth-Token") == "expired" {
+				http.Error(writer, "expired", http.StatusUnauthorized)
+
+				return
+			}
+
+			assert.Equal(t, "fresh", request.Header.Get("X-Auth-Token"))
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = writer.Write([]byte("tag: salt/job/111/ret/minion-1\n"))
+			_, _ = writer.Write([]byte("data: {\"jid\":\"111\",\"id\":\"minion-1\"}\n\n"))
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: PAMAuth("saltapi", "saltapi")})
+	require.NoError(t, err)
+
+	stream, err := transport.Subscribe(context.Background(), brine.EventFilter{JID: "111"})
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, stream.Close()) }()
+
+	event, err := stream.Recv(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "111", event.JID)
+	assert.Equal(t, 2, loginCount)
+	assert.Equal(t, 2, eventsCount)
+}
+
 func TestJobEventsSubscribesByJID(t *testing.T) {
 	t.Parallel()
 
