@@ -51,12 +51,40 @@ func verifyFoundationalModules(t *testing.T, client *brine.Client, minions []str
 
 	target := brine.List(minions...)
 
+	pings, err := modules.TestPing(ctx, client, target)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, minions, keys(pings.Nodes))
+	for _, minion := range minions {
+		assert.True(t, pings.Nodes[minion], "%s ping", minion)
+	}
+
+	versions, err := modules.TestVersion(ctx, client, target)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, minions, keys(versions.Nodes))
+	for _, minion := range minions {
+		assert.NotEmpty(t, versions.Nodes[minion], "%s Salt version", minion)
+	}
+
 	cmd, err := modules.CmdRun(ctx, client, target, "printf brine", modules.CmdRunOptions{PrependPath: "/usr/local/bin"})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, minions, keys(cmd.Nodes))
 	for _, minion := range minions {
 		assert.Equal(t, "brine", cmd.Nodes[minion])
 		assert.Zero(t, cmd.RetCodes[minion])
+	}
+
+	retcodes, err := modules.CmdRetcode(ctx, client, target, "true", modules.CmdRunOptions{})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, minions, keys(retcodes.Nodes))
+	for _, minion := range minions {
+		assert.Zero(t, retcodes.Nodes[minion], "%s retcode", minion)
+	}
+
+	grainIDs, err := modules.GrainsID(ctx, client, target)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, minions, keys(grainIDs.Nodes))
+	for _, minion := range minions {
+		assert.Equal(t, minion, grainIDs.Nodes[minion], "%s grain id", minion)
 	}
 
 	hostnames, err := modules.NetworkHostnames(ctx, client, target)
@@ -71,6 +99,20 @@ func verifyFoundationalModules(t *testing.T, client *brine.Client, minions []str
 	assert.ElementsMatch(t, minions, keys(ips.Nodes))
 	for _, minion := range minions {
 		assert.NotEmpty(t, ips.Nodes[minion])
+	}
+
+	fileExists, err := modules.FileExists(ctx, client, target, "/etc/salt/minion.d/brine.conf")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, minions, keys(fileExists.Nodes))
+	for _, minion := range minions {
+		assert.True(t, fileExists.Nodes[minion], "%s file exists", minion)
+	}
+
+	directoryExists, err := modules.DirectoryExists(ctx, client, target, "/etc/salt/minion.d")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, minions, keys(directoryExists.Nodes))
+	for _, minion := range minions {
+		assert.True(t, directoryExists.Nodes[minion], "%s directory exists", minion)
 	}
 }
 

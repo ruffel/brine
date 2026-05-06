@@ -16,8 +16,28 @@ type CmdRunOptions struct {
 
 // CmdRun runs Salt's cmd.run on target and decodes string output by minion.
 func CmdRun(ctx context.Context, client *brine.Client, target brine.Target, command string, opts CmdRunOptions) (*Result[string], error) {
+	options, err := cmdOptions("cmd.run", command, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return RunLocal[string](ctx, client, brine.Local("cmd.run", target, options...))
+}
+
+// CmdRetcode runs Salt's cmd.retcode on target and decodes process exit codes
+// by minion.
+func CmdRetcode(ctx context.Context, client *brine.Client, target brine.Target, command string, opts CmdRunOptions) (*Result[int], error) {
+	options, err := cmdOptions("cmd.retcode", command, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return RunLocal[int](ctx, client, brine.Local("cmd.retcode", target, options...))
+}
+
+func cmdOptions(function string, command string, opts CmdRunOptions) ([]brine.RequestOption, error) {
 	if command == "" {
-		return nil, errors.New("brine/modules: cmd.run command cannot be empty")
+		return nil, fmt.Errorf("brine/modules: %s command cannot be empty", function)
 	}
 
 	kwargs := cloneMap(opts.Kwargs)
@@ -34,7 +54,7 @@ func CmdRun(ctx context.Context, client *brine.Client, target brine.Target, comm
 		options = append(options, brine.Kwargs(kwargs))
 	}
 
-	return RunLocal[string](ctx, client, brine.Local("cmd.run", target, options...))
+	return options, nil
 }
 
 // CmdRunOne runs cmd.run against a single minion ID and returns that minion's output.

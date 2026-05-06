@@ -33,6 +33,70 @@ func ExampleCmdRun() {
 	// 0
 }
 
+func ExampleCmdRetcode() {
+	client, err := brine.New(exampleTransport{})
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := modules.CmdRetcode(context.Background(), client, brine.List("minion-1"), "true", modules.CmdRunOptions{})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(result.Nodes["minion-1"])
+	// Output:
+	// 0
+}
+
+func ExampleTestPing() {
+	client, err := brine.New(exampleTransport{})
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := modules.TestPing(context.Background(), client, brine.List("minion-1"))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(result.Nodes["minion-1"])
+	// Output:
+	// true
+}
+
+func ExampleGrainsID() {
+	client, err := brine.New(exampleTransport{})
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := modules.GrainsID(context.Background(), client, brine.List("minion-1"))
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(result.Nodes["minion-1"])
+	// Output:
+	// minion-1
+}
+
+func ExampleFileExists() {
+	client, err := brine.New(exampleTransport{})
+	if err != nil {
+		panic(err)
+	}
+
+	result, err := modules.FileExists(context.Background(), client, brine.List("minion-1"), "/etc/salt/minion.d/brine.conf")
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(result.Nodes["minion-1"])
+	// Output:
+	// true
+}
+
 func ExampleNetworkInterfaces() {
 	client, err := brine.New(exampleTransport{})
 	if err != nil {
@@ -64,8 +128,17 @@ func (exampleTransport) Capabilities() brine.Capabilities {
 
 func (exampleTransport) Run(_ context.Context, req brine.Request) (*brine.Result, error) {
 	body := json.RawMessage(`"hello"`)
-	if req.Function == "network.interfaces" {
+	switch req.Function {
+	case "cmd.retcode":
+		body = json.RawMessage(`0`)
+	case "file.directory_exists", "file.file_exists", "test.ping":
+		body = json.RawMessage(`true`)
+	case "grains.get":
+		body = json.RawMessage(`"minion-1"`)
+	case "network.interfaces":
 		body = json.RawMessage(`{"eth0":{"hwaddr":"aa:bb","up":true,"inet":[{"address":"10.0.0.1"}]}}`)
+	case "test.version":
+		body = json.RawMessage(`"3006.9"`)
 	}
 
 	return &brine.Result{

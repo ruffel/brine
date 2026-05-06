@@ -2,7 +2,9 @@ package brinetest
 
 import (
 	"context"
+	"os"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -61,7 +63,7 @@ func verifyJobEventReceivesMatchingJID(t *testing.T, h Harness) {
 	ctx, cancel := contractContext(t, defaultAsyncTimeout)
 	defer cancel()
 
-	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(5)))
+	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(eventSleepSeconds(t))))
 	require.NoError(t, err)
 
 	stream, err := job.Events(ctx)
@@ -84,7 +86,7 @@ func verifyJobEventMinionReturn(t *testing.T, h Harness) {
 	ctx, cancel := contractContext(t, defaultAsyncTimeout)
 	defer cancel()
 
-	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(5)))
+	job, err := h.Client.Start(ctx, brine.Local("test.sleep", h.Target, brine.Args(eventSleepSeconds(t))))
 	require.NoError(t, err)
 
 	stream, err := job.Events(ctx)
@@ -106,6 +108,23 @@ func verifyJobEventMinionReturn(t *testing.T, h Harness) {
 	result, err := job.Wait(ctx)
 	require.NoError(t, err)
 	assert.True(t, result.OK())
+}
+
+func eventSleepSeconds(t *testing.T) int {
+	t.Helper()
+
+	value := os.Getenv("BRINE_EVENT_SLEEP_SECONDS")
+	if value == "" {
+		return 2
+	}
+
+	seconds, err := strconv.Atoi(value)
+	require.NoError(t, err, "BRINE_EVENT_SLEEP_SECONDS must be an integer")
+	if seconds < 1 {
+		return 1
+	}
+
+	return seconds
 }
 
 func recvUntil(t *testing.T, ctx context.Context, stream brine.EventStream, matches func(brine.Event) bool) brine.Event {

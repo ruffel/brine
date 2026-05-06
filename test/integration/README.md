@@ -57,8 +57,17 @@ just contract-python
 
 Print a REST/Python compatibility table from the contract suites:
 
-```sh
+```
 just compat
+```
+
+Event-stream contracts use `test.sleep` to avoid racing Salt return events before
+REST `/events` subscriptions are established. The default sleep is two seconds;
+set `BRINE_EVENT_SLEEP_SECONDS` to tune stability versus runtime on slower
+machines:
+
+```
+BRINE_EVENT_SLEEP_SECONDS=5 just compat
 ```
 
 Run both contract suites against the live Salt environment:

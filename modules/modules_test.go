@@ -36,6 +36,28 @@ func TestCmdRun(t *testing.T) {
 	assert.Zero(t, result.RetCodes["minion-1"])
 }
 
+func TestCmdRetcode(t *testing.T) {
+	t.Parallel()
+
+	transport := mock.New()
+	transport.Caps = brine.NewCapabilities(brine.CapSynchronousRun, brine.CapLocalRun)
+	transport.On("Run", testifymock.Anything, testifymock.Anything).
+		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
+			require.Equal(t, "cmd.retcode", req.Function)
+			require.Equal(t, []any{"true"}, req.Args)
+			require.Equal(t, "/usr/local/bin", req.Kwargs["prepend_path"])
+
+			return localResult(req, map[string]returnValue{"minion-1": {body: `0`}}), nil
+		})
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+
+	result, err := modules.CmdRetcode(ctx(), client, brine.List("minion-1"), "true", modules.CmdRunOptions{PrependPath: "/usr/local/bin"})
+	require.NoError(t, err)
+	assert.Zero(t, result.Nodes["minion-1"])
+}
+
 func TestCmdRunOneRetCodeError(t *testing.T) {
 	t.Parallel()
 
@@ -55,6 +77,96 @@ func TestCmdRunOneRetCodeError(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "no", output)
 	assert.Equal(t, 2, retcode)
+}
+
+func TestTestPing(t *testing.T) {
+	t.Parallel()
+
+	client := clientForReturn(t, "test.ping", `true`)
+	result, err := modules.TestPing(ctx(), client, brine.List("minion-1"))
+	require.NoError(t, err)
+	assert.True(t, result.Nodes["minion-1"])
+}
+
+func TestTestVersion(t *testing.T) {
+	t.Parallel()
+
+	client := clientForReturn(t, "test.version", `"3006.9"`)
+	result, err := modules.TestVersion(ctx(), client, brine.List("minion-1"))
+	require.NoError(t, err)
+	assert.Equal(t, "3006.9", result.Nodes["minion-1"])
+}
+
+func TestGrainsID(t *testing.T) {
+	t.Parallel()
+
+	transport := mock.New()
+	transport.Caps = brine.NewCapabilities(brine.CapSynchronousRun, brine.CapLocalRun)
+	transport.On("Run", testifymock.Anything, testifymock.Anything).
+		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
+			require.Equal(t, "grains.get", req.Function)
+			require.Equal(t, []any{"id"}, req.Args)
+
+			return localResult(req, map[string]returnValue{"minion-1": {body: `"minion-1"`}}), nil
+		})
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+
+	result, err := modules.GrainsID(ctx(), client, brine.List("minion-1"))
+	require.NoError(t, err)
+	assert.Equal(t, "minion-1", result.Nodes["minion-1"])
+}
+
+func TestGrainsGet(t *testing.T) {
+	t.Parallel()
+
+	client := clientForReturn(t, "grains.get", `"Debian"`)
+	result, err := modules.GrainsGet[string](ctx(), client, brine.List("minion-1"), "os")
+	require.NoError(t, err)
+	assert.Equal(t, "Debian", result.Nodes["minion-1"])
+}
+
+func TestFileExists(t *testing.T) {
+	t.Parallel()
+
+	transport := mock.New()
+	transport.Caps = brine.NewCapabilities(brine.CapSynchronousRun, brine.CapLocalRun)
+	transport.On("Run", testifymock.Anything, testifymock.Anything).
+		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
+			require.Equal(t, "file.file_exists", req.Function)
+			require.Equal(t, []any{"/etc/salt/minion.d/brine.conf"}, req.Args)
+
+			return localResult(req, map[string]returnValue{"minion-1": {body: `true`}}), nil
+		})
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+
+	result, err := modules.FileExists(ctx(), client, brine.List("minion-1"), "/etc/salt/minion.d/brine.conf")
+	require.NoError(t, err)
+	assert.True(t, result.Nodes["minion-1"])
+}
+
+func TestDirectoryExists(t *testing.T) {
+	t.Parallel()
+
+	transport := mock.New()
+	transport.Caps = brine.NewCapabilities(brine.CapSynchronousRun, brine.CapLocalRun)
+	transport.On("Run", testifymock.Anything, testifymock.Anything).
+		Return(func(_ context.Context, req brine.Request) (*brine.Result, error) {
+			require.Equal(t, "file.directory_exists", req.Function)
+			require.Equal(t, []any{"/etc/salt/minion.d"}, req.Args)
+
+			return localResult(req, map[string]returnValue{"minion-1": {body: `true`}}), nil
+		})
+
+	client, err := brine.New(transport)
+	require.NoError(t, err)
+
+	result, err := modules.DirectoryExists(ctx(), client, brine.List("minion-1"), "/etc/salt/minion.d")
+	require.NoError(t, err)
+	assert.True(t, result.Nodes["minion-1"])
 }
 
 func TestServiceStatus(t *testing.T) {

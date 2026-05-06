@@ -239,6 +239,96 @@ func TestRunLocalAutoModeUsesAsyncWithObserver(t *testing.T) {
 	assert.Equal(t, []brine.EventType{brine.EventExpectedMinions, brine.EventMinionReturned}, recorder.types())
 }
 
+func TestRunLocalObservedFallsBackToLookupWhenSSEFails(t *testing.T) {
+	t.Parallel()
+
+	var captured []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == eventStreamPath {
+			http.Error(writer, "events unavailable", http.StatusInternalServerError)
+
+			return
+		}
+
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+		captured = append(captured, payload[0])
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1","minion-2"]}]}`))
+		case "runner":
+			_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":true}]}`))
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	recorder := &eventRecorder{}
+	ctx := brine.WithEmitter(context.Background(), recorder)
+	result, err := transport.Run(ctx, brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+	assert.Equal(t, []brine.EventType{brine.EventExpectedMinions, brine.EventMinionReturned, brine.EventMinionReturned}, recorder.types())
+}
+
+func TestRunLocalObservedReturnsPartialWhenLookupFailsAfterSSE(t *testing.T) {
+	t.Parallel()
+
+	lookupCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == eventStreamPath {
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = writer.Write([]byte("tag: salt/job/jid-1/ret/minion-1\n"))
+			_, _ = writer.Write([]byte("data: {\"jid\":\"jid-1\",\"id\":\"minion-1\",\"return\":true,\"retcode\":0,\"success\":true}\n\n"))
+			if flusher, ok := writer.(http.Flusher); ok {
+				flusher.Flush()
+			}
+
+			return
+		}
+
+		var payload []map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
+		require.Len(t, payload, 1)
+
+		switch payload[0]["client"] {
+		case "local_async":
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"jid-1","minions":["minion-1","minion-2"]}]}`))
+		case "runner":
+			lookupCount++
+			if lookupCount == 1 {
+				_, _ = writer.Write([]byte(`{"return":[{}]}`))
+
+				return
+			}
+
+			http.Error(writer, "lookup failed", http.StatusInternalServerError)
+		default:
+			assert.Failf(t, "unexpected client", "client: %v", payload[0]["client"])
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, JobPollInterval: 10 * time.Millisecond})
+	require.NoError(t, err)
+
+	recorder := &eventRecorder{}
+	ctx := brine.WithEmitter(context.Background(), recorder)
+	result, err := transport.Run(ctx, brine.Local("test.ping", brine.Glob("*")))
+	require.Error(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"minion-1"}, result.Returned())
+	assert.Equal(t, []string{"minion-2"}, result.Missing)
+	assert.True(t, recorder.hasMinionReturnRaw("minion-1", `"jid":"jid-1"`))
+}
+
 func TestRunLocalDefaultUsesAsyncLookupWithoutObserver(t *testing.T) {
 	t.Parallel()
 
