@@ -85,11 +85,10 @@ func normalizeLocal(result *brine.Result, raw json.RawMessage) error {
 	return nil
 }
 
-// normalizeMinion accepts the two local return shapes observed from REST
-// fixtures in test/integration/fixtures/rest: bare minion return bodies and
-// full_return envelopes containing jid, ret, retcode, and error fields. Async
-// job lookup payloads should add tests before reusing or changing this shape
-// detection.
+// applyExplicitTargetExpected populates the Expected and Missing fields
+// for list-targeted local results. Glob and compound targets do not have a
+// known expected set from the synchronous local client, so the fields are
+// populated from the response data only.
 func applyExplicitTargetExpected(result *brine.Result) {
 	if result == nil || result.Request == nil || result.Request.Kind != brine.KindLocal {
 		return
@@ -122,6 +121,17 @@ func missingMinions(expected []string, returned map[string]brine.MinionResult) [
 	return missing
 }
 
+// normalizeMinion accepts two local return shapes from REST:
+//
+//  1. Bare: {"minion-1": <module return>}
+//     Used by Salt's synchronous local client when full_return is not set.
+//
+//  2. Full return: {"minion-1": {"jid": "...", "ret": <return>, "retcode": 0}}
+//     Used when full_return=True, by some Salt versions, or by job lookup.
+//
+// Shape detection checks for the presence of full_return envelope fields
+// (jid, ret, retcode, error). If any are populated, the return is treated
+// as a full_return envelope; otherwise it is treated as a bare module return.
 func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) brine.MinionResult {
 	full := fullMinionReturn{}
 	if err := json.Unmarshal(raw, &full); err == nil && (len(full.Return) > 0 || full.JID != "" || full.RetCode != 0 || full.Error != "") {
