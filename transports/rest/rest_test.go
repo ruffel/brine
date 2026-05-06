@@ -736,6 +736,17 @@ func TestRESTPayloadTargetsAndOptions(t *testing.T) {
 				"batch":              "25%",
 			},
 		},
+		{
+			name: "sub-second timeouts",
+			req: brine.Local("state.sls", brine.Glob("*"),
+				brine.ModuleTimeout(500*time.Millisecond),
+				brine.GatherJobTimeout(1500*time.Millisecond),
+			),
+			want: map[string]any{
+				"timeout":            float64(1),
+				"gather_job_timeout": float64(2),
+			},
+		},
 	}
 
 	for _, tt := range tests {

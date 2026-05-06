@@ -482,11 +482,11 @@ func addOptions(item map[string]any, opts brine.RequestOptions) {
 	}
 
 	if opts.ModuleTimeout > 0 {
-		item["timeout"] = int(opts.ModuleTimeout / time.Second)
+		item["timeout"] = durationSecondsCeil(opts.ModuleTimeout)
 	}
 
 	if opts.GatherJobTimeout > 0 {
-		item["gather_job_timeout"] = int(opts.GatherJobTimeout / time.Second)
+		item["gather_job_timeout"] = durationSecondsCeil(opts.GatherJobTimeout)
 	}
 
 	if opts.Batch.Count > 0 {
@@ -496,6 +496,10 @@ func addOptions(item map[string]any, opts brine.RequestOptions) {
 	if opts.Batch.Percent > 0 {
 		item["batch"] = fmt.Sprintf("%g%%", opts.Batch.Percent)
 	}
+}
+
+func durationSecondsCeil(duration time.Duration) int {
+	return int((duration + time.Second - 1) / time.Second)
 }
 
 func isEmptyLowstateTarget(target any) bool {
