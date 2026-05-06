@@ -43,39 +43,56 @@ func NewEvent(kind EventType, payload any) Event {
 	return Event{Type: kind, Timestamp: time.Now(), Payload: payload}
 }
 
+// RequestStartedPayload is emitted as an EventRequestStarted payload when
+// Client.Run begins executing a request.
 type RequestStartedPayload struct {
 	Request Request
 }
 
+// ExpectedMinionsPayload is emitted as an EventExpectedMinions payload when
+// the set of minions expected to return is known, typically after an async
+// job is dispatched.
 type ExpectedMinionsPayload struct {
 	JID     string
 	Minions []string
 }
 
+// RequestCompletedPayload is emitted as an EventRequestCompleted payload when
+// Client.Run finishes successfully.
 type RequestCompletedPayload struct {
 	Request Request
 	Result  *Result
 }
 
+// RequestFailedPayload is emitted as an EventRequestFailed payload when
+// Client.Run encounters an error, including execution failures.
 type RequestFailedPayload struct {
 	Request Request
 	Err     error
 }
 
+// JobStartedPayload is emitted as an EventJobStarted payload when an
+// asynchronous Salt job has been accepted by the master.
 type JobStartedPayload struct {
 	JID     string
 	Request Request
 }
 
+// MinionReturnedPayload is emitted as an EventMinionReturned payload when a
+// single minion return is received from a Salt event stream.
 type MinionReturnedPayload struct {
 	Result MinionResult
 }
 
+// JobCompletedPayload is emitted as an EventJobCompleted payload when all
+// expected minion returns for an asynchronous job have been collected.
 type JobCompletedPayload struct {
 	JID    string
 	Result *Result
 }
 
+// RetryPayload is emitted for EventRetryScheduled, EventRetryStarted, and
+// EventRetryExhausted events during per-minion retry middleware execution.
 type RetryPayload struct {
 	Request Request
 	Minion  string
@@ -84,10 +101,13 @@ type RetryPayload struct {
 	Err     error
 }
 
+// RawSaltPayload is emitted as an EventRawSalt payload for Salt event stream
+// frames that do not match a recognized structured event type.
 type RawSaltPayload struct {
 	Tag string
 }
 
+// MinionReturned extracts the MinionReturnedPayload from the event if present.
 func (e Event) MinionReturned() (MinionReturnedPayload, bool) {
 	payload, ok := e.Payload.(MinionReturnedPayload)
 
