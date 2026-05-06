@@ -84,6 +84,31 @@ func TestRunListTargetFullReturnFailure(t *testing.T) {
 	assert.Equal(t, brine.FailureRetCode, failure.Kind)
 }
 
+func TestRunBareFalseMinionReturn(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true,"minion-2":false}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	assert.False(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+
+	assert.Nil(t, result.ByMinion["minion-1"].Failure)
+	assert.Equal(t, 0, result.ByMinion["minion-1"].RetCode)
+
+	failure := result.ByMinion["minion-2"].Failure
+	require.NotNil(t, failure)
+	assert.Equal(t, brine.FailureNoReturn, failure.Kind)
+	assert.Equal(t, 1, result.ByMinion["minion-2"].RetCode)
+}
+
 func TestRunRunnerScalar(t *testing.T) {
 	t.Parallel()
 

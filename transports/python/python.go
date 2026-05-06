@@ -134,14 +134,26 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 	return normalizeBridgeLocal(req, body)
 }
 
-// Resolve resolves responsive minions by running test.ping through the bridge.
+// Resolve resolves responsive minions by running test.ping through the bridge
+// and filtering to only those that returned successfully.
 func (t *Transport) Resolve(ctx context.Context, target brine.Target) ([]string, error) {
 	result, err := t.Run(ctx, brine.Local("test.ping", target))
 	if err != nil {
 		return nil, err
 	}
 
-	return result.Returned(), nil
+	return responsiveMinions(result), nil
+}
+
+func responsiveMinions(result *brine.Result) []string {
+	minions := make([]string, 0, len(result.ByMinion))
+	for _, minion := range result.Returned() {
+		if ret, ok := result.ByMinion[minion]; ok && ret.Failure == nil {
+			minions = append(minions, minion)
+		}
+	}
+
+	return minions
 }
 
 func (t *Transport) invoke(ctx context.Context, payload bridgeRequest) ([]byte, error) {
@@ -224,6 +236,9 @@ func normalizeBridgeLocal(req brine.Request, body []byte) (*brine.Result, error)
 			ret.Failure = &brine.Failure{Kind: brine.FailureMinionException, Message: item.Error, Raw: append([]byte(nil), item.Raw...)}
 		case item.RetCode != 0:
 			ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", item.RetCode), Raw: append([]byte(nil), item.Raw...)}
+		case isBareFalse(item.Return):
+			ret.RetCode = 1
+			ret.Failure = &brine.Failure{Kind: brine.FailureNoReturn, Message: "minion returned false", Raw: append([]byte(nil), item.Return...)}
 		case isStateRequest(req):
 			ret.Failure = stateFailure(item.Return)
 			if ret.Failure != nil {
@@ -279,6 +294,12 @@ func unsupportedRunError(kind brine.RequestKind) error {
 
 func isStateRequest(req brine.Request) bool {
 	return req.Kind == brine.KindLocal && strings.HasPrefix(req.Function, "state.")
+}
+
+func isBareFalse(raw json.RawMessage) bool {
+	var b bool
+
+	return json.Unmarshal(raw, &b) == nil && !b
 }
 
 func stateFailure(raw json.RawMessage) *brine.Failure {

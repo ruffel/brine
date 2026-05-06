@@ -150,14 +150,26 @@ func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, er
 	return newLocalJob(t, req, body)
 }
 
-// Resolve resolves a target by executing Salt's benign test.ping function.
+// Resolve resolves responsive minions by running Salt's test.ping and
+// filtering to only those that returned successfully.
 func (t *Transport) Resolve(ctx context.Context, target brine.Target) ([]string, error) {
 	result, err := t.Run(ctx, brine.Local("test.ping", target))
 	if err != nil {
 		return nil, err
 	}
 
-	return result.Returned(), nil
+	return responsiveMinions(result), nil
+}
+
+func responsiveMinions(result *brine.Result) []string {
+	minions := make([]string, 0, len(result.ByMinion))
+	for _, minion := range result.Returned() {
+		if ret, ok := result.ByMinion[minion]; ok && ret.Failure == nil {
+			minions = append(minions, minion)
+		}
+	}
+
+	return minions
 }
 
 func (t *Transport) post(ctx context.Context, payload any) ([]byte, error) {

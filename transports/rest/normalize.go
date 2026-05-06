@@ -113,7 +113,10 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 		Raw:     append([]byte(nil), raw...),
 	}
 
-	if isStateRequest(req) {
+	if isBareFalse(raw) {
+		ret.RetCode = 1
+		ret.Failure = &brine.Failure{Kind: brine.FailureNoReturn, Message: "minion returned false", Raw: append([]byte(nil), raw...)}
+	} else if isStateRequest(req) {
 		if failure := stateFailure(raw); failure != nil {
 			ret.RetCode = 1
 			ret.Failure = failure
@@ -121,6 +124,12 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 	}
 
 	return ret
+}
+
+func isBareFalse(raw json.RawMessage) bool {
+	var b bool
+
+	return json.Unmarshal(raw, &b) == nil && !b
 }
 
 func isStateRequest(req *brine.Request) bool {
