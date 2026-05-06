@@ -1,11 +1,3 @@
-// Package python implements a minimal Salt Python command-bridge transport.
-//
-// The transport starts a helper process per request and exchanges a single JSON
-// request/response over stdin/stdout. It intentionally advertises a narrow
-// capability set: synchronous local execution, synchronous runner execution, and
-// responsive target resolution. Async jobs, global events, wheel calls, and raw
-// lowstate requests return Brine's normal UnsupportedError through the embedded
-// UnsupportedTransport.
 package python
 
 import (
@@ -111,9 +103,12 @@ type bridgeMinionResult struct {
 }
 
 type bridgeError struct {
-	Kind    string `json:"kind"`
-	Message string `json:"message"`
-	Trace   string `json:"traceback,omitempty"`
+	Kind         string             `json:"kind"`
+	Message      string             `json:"message"`
+	Trace        string             `json:"traceback,omitempty"`
+	Operation    string             `json:"operation,omitempty"`
+	Capability   brine.Capability   `json:"capability,omitempty"`
+	Capabilities []brine.Capability `json:"capabilities,omitempty"`
 }
 
 // New constructs a Python command bridge transport.
@@ -287,7 +282,7 @@ func normalizeBridgeScalar(req brine.Request, body []byte) (*brine.Result, error
 		}
 
 		if last.Error != nil {
-			return nil, bridgeErrorToBrine(last.Error)
+			return nil, bridgeErrorToBrine(req, last.Error)
 		}
 	}
 
@@ -351,7 +346,7 @@ func normalizeBridgeLocal(req brine.Request, body []byte) (*brine.Result, error)
 
 func normalizeBridgeResponse(req brine.Request, response bridgeResponse, raw []byte) (*brine.Result, error) {
 	if response.Error != nil {
-		return nil, bridgeErrorToBrine(response.Error)
+		return nil, bridgeErrorToBrine(req, response.Error)
 	}
 
 	if response.Local == nil {
@@ -390,7 +385,7 @@ func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
 	}
 
 	if frame.Error != nil {
-		return bridgeErrorToBrine(frame.Error)
+		return bridgeErrorToBrine(a.req, frame.Error)
 	}
 
 	if frame.Local != nil {
@@ -467,9 +462,9 @@ func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionRe
 
 func ctxWithoutEmitter() context.Context { return context.Background() }
 
-func bridgeErrorToBrine(err *bridgeError) error {
+func bridgeErrorToBrine(req brine.Request, err *bridgeError) error {
 	if err.Kind == "unsupported" {
-		return &brine.UnsupportedError{Operation: "Run", Capabilities: []brine.Capability{brine.CapRunnerRun, brine.CapWheelRun}}
+		return unsupportedBridgeError(req, err)
 	}
 
 	message := err.Message
@@ -478,6 +473,42 @@ func bridgeErrorToBrine(err *bridgeError) error {
 	}
 
 	return brine.NewTransportError("python bridge", errors.New(message))
+}
+
+func unsupportedBridgeError(req brine.Request, err *bridgeError) error {
+	operation := err.Operation
+	if operation == "" {
+		operation = "Run"
+	}
+
+	if err.Capability != "" {
+		return &brine.UnsupportedError{Operation: operation, Capability: err.Capability}
+	}
+
+	if len(err.Capabilities) > 0 {
+		return &brine.UnsupportedError{Operation: operation, Capabilities: append([]brine.Capability(nil), err.Capabilities...)}
+	}
+
+	if capability := runCapabilityForKind(req.Kind); capability != "" {
+		return &brine.UnsupportedError{Operation: operation, Capability: capability}
+	}
+
+	return &brine.UnsupportedError{Operation: operation}
+}
+
+func runCapabilityForKind(kind brine.RequestKind) brine.Capability {
+	switch kind {
+	case brine.KindLocal:
+		return brine.CapLocalRun
+	case brine.KindRunner:
+		return brine.CapRunnerRun
+	case brine.KindWheel:
+		return brine.CapWheelRun
+	case brine.KindLowstate:
+		return brine.CapLowstate
+	default:
+		return ""
+	}
 }
 
 func unsupportedRunError(kind brine.RequestKind) error {

@@ -92,6 +92,20 @@ func TestRunLocalMalformedStateReturn(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesAdvertiseRunScopedLocalReturns(t *testing.T) {
+	t.Parallel()
+
+	transport := newHelperTransport(t, `{}`)
+	caps := transport.Capabilities()
+	assert.True(t, caps.Supports(brine.CapSynchronousRun))
+	assert.True(t, caps.Supports(brine.CapLocalRun))
+	assert.True(t, caps.Supports(brine.CapRunnerRun))
+	assert.True(t, caps.Supports(brine.CapTargetResolution))
+	assert.True(t, caps.Supports(brine.CapRunScopedReturns))
+	assert.False(t, caps.Supports(brine.CapEvents))
+	assert.False(t, caps.Supports(brine.CapLocalStart))
+}
+
 func TestRunRunnerScalar(t *testing.T) {
 	t.Parallel()
 
@@ -148,8 +162,85 @@ func TestRunRejectsUnsupportedKinds(t *testing.T) {
 	t.Parallel()
 
 	transport := newHelperTransport(t, `{}`)
-	_, err := transport.Run(context.Background(), brine.Wheel("key.list_all"))
-	require.ErrorIs(t, err, brine.ErrUnsupported)
+	tests := []struct {
+		name string
+		req  brine.Request
+		cap  brine.Capability
+	}{
+		{name: "wheel", req: brine.Wheel("key.list_all"), cap: brine.CapWheelRun},
+		{name: "lowstate", req: brine.Lowstate(brine.LowstateEntry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstate},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := transport.Run(context.Background(), tt.req)
+			require.ErrorIs(t, err, brine.ErrUnsupported)
+
+			var unsupported *brine.UnsupportedError
+			require.ErrorAs(t, err, &unsupported)
+			assert.Equal(t, tt.cap, unsupported.Capability)
+		})
+	}
+}
+
+func TestBridgeUnsupportedErrorMapping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		req       brine.Request
+		response  string
+		operation string
+		cap       brine.Capability
+		caps      []brine.Capability
+	}{
+		{
+			name:      "inferred local run capability",
+			req:       brine.Local("test.ping", brine.Glob("*")),
+			response:  `{"error":{"kind":"unsupported","message":"no local"}}`,
+			operation: "Run",
+			cap:       brine.CapLocalRun,
+		},
+		{
+			name:      "inferred runner run capability",
+			req:       brine.Runner("manage.alived"),
+			response:  `{"error":{"kind":"unsupported","message":"no runner"}}`,
+			operation: "Run",
+			cap:       brine.CapRunnerRun,
+		},
+		{
+			name:      "explicit operation and capability",
+			req:       brine.Local("test.ping", brine.Glob("*")),
+			response:  `{"error":{"kind":"unsupported","message":"no stream","operation":"Subscribe","capability":"events"}}`,
+			operation: "Subscribe",
+			cap:       brine.CapEvents,
+		},
+		{
+			name:      "explicit capability set",
+			req:       brine.Runner("manage.alived"),
+			response:  `{"error":{"kind":"unsupported","message":"no async","capabilities":["runner.start","wheel.start"]}}`,
+			operation: "Run",
+			caps:      []brine.Capability{brine.CapRunnerStart, brine.CapWheelStart},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transport := newHelperTransport(t, tt.response)
+			_, err := transport.Run(context.Background(), tt.req)
+			require.ErrorIs(t, err, brine.ErrUnsupported)
+
+			var unsupported *brine.UnsupportedError
+			require.ErrorAs(t, err, &unsupported)
+			assert.Equal(t, tt.operation, unsupported.Operation)
+			assert.Equal(t, tt.cap, unsupported.Capability)
+			assert.Equal(t, tt.caps, unsupported.Capabilities)
+		})
+	}
 }
 
 func TestResolveUsesLocalPing(t *testing.T) {
@@ -183,8 +274,7 @@ func TestRunLocalStreamingFrames(t *testing.T) {
 	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Expected)
 	assert.Equal(t, []string{"minion-2"}, result.Missing)
 	assert.Equal(t, []string{"minion-1"}, result.Returned())
-	assert.Contains(t, eventTypes(events), brine.EventExpectedMinions)
-	assert.Contains(t, eventTypes(events), brine.EventMinionReturned)
+	assert.Equal(t, []brine.EventType{brine.EventRequestStarted, brine.EventExpectedMinions, brine.EventMinionReturned, brine.EventRequestFailed}, eventTypes(events))
 }
 
 func TestBridgeError(t *testing.T) {
