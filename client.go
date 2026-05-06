@@ -88,8 +88,16 @@ func New(transport Transport, opts ...ClientOption) (*Client, error) {
 	}, nil
 }
 
+// BaseHandler returns the bare transport handler below client middleware.
+//
+// Middleware that needs to run additional Salt calls can use BaseHandler to
+// avoid recursively invoking the same middleware chain.
+func (c *Client) BaseHandler() Handler { return c.transport }
+
 // Unwrap returns the bare transport handler below client middleware.
-func (c *Client) Unwrap() Handler { return c.transport }
+//
+// Deprecated: use BaseHandler.
+func (c *Client) Unwrap() Handler { return c.BaseHandler() }
 
 // Run validates and executes req through the configured Handler chain.
 //

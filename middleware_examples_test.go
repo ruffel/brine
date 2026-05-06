@@ -181,14 +181,14 @@ func ExampleClient_middleware() {
 	// {"example":{"message":"hello"}}
 }
 
-func ExampleClient_unwrap() {
+func ExampleClient_baseHandler() {
 	transport := orchestrationExampleTransport{}
 	baseClient, err := brine.New(transport)
 	if err != nil {
 		panic(err)
 	}
 
-	client, err := brine.New(transport, brine.WithMiddleware(aliveMinionsPillarMiddleware(baseClient.Unwrap())))
+	client, err := brine.New(transport, brine.WithMiddleware(aliveMinionsPillarMiddleware(baseClient.BaseHandler())))
 	if err != nil {
 		panic(err)
 	}
