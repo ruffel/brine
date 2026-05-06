@@ -134,7 +134,12 @@ func (c Capabilities) List() []Capability {
 
 // MarshalJSON encodes capabilities as a stable sorted JSON array.
 func (c Capabilities) MarshalJSON() ([]byte, error) {
-	return json.Marshal(c.List())
+	list := c.List()
+	if list == nil {
+		list = make([]Capability, 0)
+	}
+
+	return json.Marshal(list)
 }
 
 // UnmarshalJSON decodes capabilities from a JSON array.
