@@ -7,8 +7,5 @@ type Entry = brine.LowstateEntry
 
 // Request constructs a raw lowstate request.
 func Request(entries ...Entry) brine.Request {
-	return brine.Request{
-		Kind:     brine.KindLowstate,
-		Lowstate: append([]brine.LowstateEntry(nil), entries...),
-	}
+	return brine.Lowstate(entries...)
 }

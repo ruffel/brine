@@ -95,6 +95,11 @@ func Wheel(function string, opts ...RequestOption) Request {
 	return req
 }
 
+// Lowstate builds a raw lowstate request from entries.
+func Lowstate(entries ...LowstateEntry) Request {
+	return Request{Kind: KindLowstate, Lowstate: cloneLowstateEntries(entries)}
+}
+
 func applyOptions(req *Request, opts ...RequestOption) {
 	for _, opt := range opts {
 		opt(req)
@@ -328,6 +333,40 @@ func mergeMaps(dst map[string]any, src map[string]any) map[string]any {
 	return merged
 }
 
+func cloneLowstateEntries(entries []LowstateEntry) []LowstateEntry {
+	if entries == nil {
+		return nil
+	}
+
+	out := make([]LowstateEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = cloneLowstateEntry(entry)
+	}
+
+	return out
+}
+
+func cloneLowstateEntry(entry LowstateEntry) LowstateEntry {
+	entry.Target = cloneAny(entry.Target)
+	entry.Args = cloneAnySlice(entry.Args)
+	entry.Kwargs = cloneMap(entry.Kwargs)
+
+	return entry
+}
+
+func cloneAnySlice(input []any) []any {
+	if input == nil {
+		return nil
+	}
+
+	out := make([]any, len(input))
+	for i, value := range input {
+		out[i] = cloneAny(value)
+	}
+
+	return out
+}
+
 func cloneMap(input map[string]any) map[string]any {
 	if input == nil {
 		return nil
@@ -346,12 +385,9 @@ func cloneAny(value any) any {
 	case map[string]any:
 		return cloneMap(v)
 	case []any:
-		out := make([]any, len(v))
-		for i, item := range v {
-			out[i] = cloneAny(item)
-		}
-
-		return out
+		return cloneAnySlice(v)
+	case []string:
+		return append([]string(nil), v...)
 	default:
 		return v
 	}
