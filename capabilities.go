@@ -38,9 +38,13 @@ const (
 	// asynchronously via Start.
 	CapWheelStart Capability = "wheel.start"
 
-	// CapLowstate indicates the transport accepts raw lowstate payloads,
+	// CapLowstate indicates the transport accepts raw lowstate payloads for Run,
 	// bypassing brine's typed request builders.
 	CapLowstate Capability = "lowstate"
+
+	// CapLowstateStart indicates the transport can dispatch raw lowstate payloads
+	// asynchronously via Start.
+	CapLowstateStart Capability = "lowstate.start"
 
 	// CapEvents indicates the transport can subscribe to Salt's event bus,
 	// enabling EventStream access via Job.Events or global event listeners.

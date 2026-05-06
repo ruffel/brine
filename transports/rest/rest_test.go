@@ -140,6 +140,8 @@ func TestLocalRunModeCapabilities(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, asyncTransport.Capabilities().Supports(brine.CapRunScopedReturns))
 	assert.True(t, asyncTransport.Capabilities().Supports(brine.CapBatch))
+	assert.True(t, asyncTransport.Capabilities().Supports(brine.CapLowstate))
+	assert.False(t, asyncTransport.Capabilities().Supports(brine.CapLowstateStart))
 
 	directTransport, err := New(Config{BaseURL: "http://127.0.0.1:8000", LocalRunMode: LocalRunModeDirect})
 	require.NoError(t, err)
@@ -1521,7 +1523,7 @@ func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 	}{
 		{name: "runner", req: brine.Runner("manage.alived"), cap: brine.CapRunnerStart},
 		{name: "wheel", req: brine.Wheel("key.list_all"), cap: brine.CapWheelStart},
-		{name: "lowstate", req: lowstate.Request(lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstate},
+		{name: "lowstate", req: lowstate.Request(lowstate.Entry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstateStart},
 	}
 
 	for _, tt := range tests {

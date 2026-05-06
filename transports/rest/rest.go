@@ -411,7 +411,7 @@ func unsupportedStartError(kind brine.RequestKind) error {
 	case brine.KindWheel:
 		return &brine.UnsupportedError{Capability: brine.CapWheelStart, Operation: "Start"}
 	case brine.KindLowstate:
-		return &brine.UnsupportedError{Capability: brine.CapLowstate, Operation: "Start"}
+		return &brine.UnsupportedError{Capability: brine.CapLowstateStart, Operation: "Start"}
 	case brine.KindLocal:
 		return nil
 	default:
