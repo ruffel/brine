@@ -56,12 +56,18 @@ func (e *DecodeError) Unwrap() error {
 	return e.Err
 }
 
-// RunLocal executes req and decodes each returned minion body into T. If Salt
-// execution partially fails, the returned Result contains the available partial
-// data and err preserves Brine's ExecutionError.
+// RunLocal executes a local req and decodes each returned minion body into T.
+//
+// RunLocal rejects runner, wheel, and raw lowstate requests before execution. If
+// Salt execution partially fails, the returned Result contains the available
+// partial data and err preserves Brine's ExecutionError.
 func RunLocal[T any](ctx context.Context, client *brine.Client, req brine.Request) (*Result[T], error) {
 	if client == nil {
 		return nil, errors.New("brine/modules: client cannot be nil")
+	}
+
+	if req.Kind != brine.KindLocal {
+		return nil, fmt.Errorf("brine/modules: RunLocal requires local request, got %s", req.Kind)
 	}
 
 	result, err := client.Run(ctx, req)

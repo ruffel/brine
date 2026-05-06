@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/lowstate"
 	"github.com/ruffel/brine/modules"
 	"github.com/ruffel/brine/transports/mock"
 	"github.com/stretchr/testify/assert"
@@ -251,6 +252,33 @@ func TestNetworkHostnames(t *testing.T) {
 	result, err := modules.NetworkHostnames(ctx(), client, brine.List("minion-1"))
 	require.NoError(t, err)
 	assert.Equal(t, "minion-1.example", result.Nodes["minion-1"])
+}
+
+func TestRunLocalRejectsNonLocalRequests(t *testing.T) {
+	t.Parallel()
+
+	client, err := brine.New(mock.New())
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		req  brine.Request
+	}{
+		{name: "runner", req: brine.Runner("jobs.active")},
+		{name: "wheel", req: brine.Wheel("key.list_all")},
+		{name: "lowstate", req: lowstate.Request(lowstate.Entry{Client: "runner", Fun: "jobs.active"})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := modules.RunLocal[string](ctx(), client, tt.req)
+			require.Error(t, err)
+			assert.Nil(t, result)
+			assert.ErrorContains(t, err, "RunLocal requires local request")
+		})
+	}
 }
 
 func TestRunLocalReturnsPartialResultWithExecutionError(t *testing.T) {
