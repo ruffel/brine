@@ -58,6 +58,32 @@ func TestResolveUsesLocalPing(t *testing.T) {
 	assert.Equal(t, []string{"minion-1", "minion-2"}, minions)
 }
 
+func TestRunLocalStreamingFrames(t *testing.T) {
+	t.Parallel()
+
+	response := `{"type":"minions","minions":["minion-1","minion-2"]}
+{"type":"return","minion":"minion-1","jid":"jid","retcode":0,"body":true}
+{"type":"done"}
+`
+	transport := newHelperTransport(t, response)
+
+	var events []brine.Event
+	client, err := brine.New(transport, brine.WithObserver(brine.ObserverFunc(func(_ context.Context, event brine.Event) {
+		events = append(events, event)
+	})))
+	require.NoError(t, err)
+
+	result, err := client.Run(context.Background(), brine.Local("test.ping", brine.List("minion-1", "minion-2")))
+	require.Error(t, err)
+	var executionError *brine.ExecutionError
+	require.ErrorAs(t, err, &executionError)
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Expected)
+	assert.Equal(t, []string{"minion-2"}, result.Missing)
+	assert.Equal(t, []string{"minion-1"}, result.Returned())
+	assert.Contains(t, eventTypes(events), brine.EventExpectedMinions)
+	assert.Contains(t, eventTypes(events), brine.EventMinionReturned)
+}
+
 func TestBridgeError(t *testing.T) {
 	t.Parallel()
 
@@ -104,6 +130,15 @@ func TestHelperProcess(t *testing.T) {
 
 	_, _ = io.WriteString(os.Stdout, response)
 	os.Exit(0)
+}
+
+func eventTypes(events []brine.Event) []brine.EventType {
+	types := make([]brine.EventType, 0, len(events))
+	for _, event := range events {
+		types = append(types, event.Type)
+	}
+
+	return types
 }
 
 func newHelperTransport(t *testing.T, response string) *Transport {

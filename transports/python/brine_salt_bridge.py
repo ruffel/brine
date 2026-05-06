@@ -29,8 +29,8 @@ def main() -> int:
             }
         }
 
-    _ = json.dump(response, sys.stdout, separators=(",", ":"))
-    sys.stdout.write("\n")
+    if response is not None:
+        emit(response)
     return 0
 
 
@@ -63,16 +63,61 @@ def run_local(request: dict[str, Any]) -> dict[str, Any]:
         return {"error": {"kind": "protocol", "message": "missing target"}}
 
     client = salt.client.LocalClient()
-    raw = client.cmd(
-        target_expr,
+    minions = list(client.gather_minions(target_expr, target_type) or [])
+    emit({"type": "minions", "minions": minions})
+
+    for node in client.cmd_iter(
+        minions,
         function,
         args,
+        tgt_type="list",
         kwarg=kwargs,
-        tgt_type=target_type,
-        full_return=True,
-    )
+    ):
+        if not isinstance(node, dict) or not node:
+            continue
 
-    return {"local": normalize_local(raw)}
+        minion, data = next(iter(node.items()))
+        emit(minion_frame(str(minion), data))
+
+    return {"type": "done"}
+
+
+def emit(frame: dict[str, Any]) -> None:
+    _ = json.dump(frame, sys.stdout, separators=(",", ":"))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
+def minion_frame(minion: str, value: Any) -> dict[str, Any]:
+    ret = value
+    retcode = 0
+    jid = ""
+    error = ""
+
+    if isinstance(value, dict) and (
+        "ret" in value
+        or "return" in value
+        or "retcode" in value
+        or "jid" in value
+        or "error" in value
+    ):
+        if "ret" in value:
+            ret = value.get("ret")
+        elif "return" in value:
+            ret = value.get("return")
+        retcode = int(value.get("retcode") or 0)
+        jid = str(value.get("jid") or "")
+        error = str(value.get("error") or "")
+
+    return {
+        "type": "return",
+        "minion": minion,
+        "jid": jid,
+        "retcode": retcode,
+        "body": ret,
+        "error_message": error,
+        "raw": value,
+    }
 
 
 def normalize_local(raw: Any) -> dict[str, Any]:

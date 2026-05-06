@@ -75,6 +75,7 @@ REST remains the production-oriented backend for the current Salt `v3006` localh
 | runner sync calls | yes | no |
 | wheel sync calls | yes | no |
 | local async start/wait | yes | no |
+| run-scoped minion progress | async/event observer patterns | yes, newline JSON frames from `cmd_iter` |
 | event stream | best-effort SSE | no |
 | raw lowstate | yes | no |
 

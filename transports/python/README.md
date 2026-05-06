@@ -18,10 +18,16 @@ through the normal Brine transport interface.
 ## Runtime model
 
 For each request, the Go transport starts a configured command, sends one JSON
-request to stdin, and reads one JSON response from stdout. The bundled helper
-script, `brine_salt_bridge.py`, imports `salt.client.LocalClient`, so it must run
-in an environment where Salt's Python libraries and master configuration are
-available.
+request to stdin, and reads newline-delimited JSON frames from stdout. The helper
+first emits the resolved minion list, then emits one return frame per minion as
+Salt's `cmd_iter` yields it, and finally emits a done frame. The Go transport
+accumulates those frames into the final `Result` and emits Brine observer events
+for expected minions and per-minion returns while `Client.Run` is still in
+progress.
+
+The bundled helper script, `brine_salt_bridge.py`, imports
+`salt.client.LocalClient`, so it must run in an environment where Salt's Python
+libraries and master configuration are available.
 
 In practice this means the helper usually runs on the Salt master host, or via a
 remote command such as SSH that executes on the Salt master host.
@@ -99,6 +105,8 @@ Do not let untrusted users edit the helper or wrapper. Prefer root-owned files
 with restrictive permissions and run the Go process with the minimum privileges
 needed to execute the bridge.
 
-The command bridge starts one process per request. Use REST for richer production
-features such as async job handling and event streams, or build a future
-long-lived Python helper if Python parity and high concurrency become required.
+The command bridge starts one process per request. Its per-minion frames provide
+run-scoped progress, but it is not an async job API and it does not expose the
+global Salt event stream. Use REST for richer production features such as async
+job handling and event streams, or build a future long-lived Python helper if
+Python parity and high concurrency become required.
