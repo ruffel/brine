@@ -51,7 +51,9 @@ type Config struct {
 	LocalRunMode   LocalRunMode
 }
 
-// Authenticator provides Salt API authentication tokens.
+// Authenticator provides Salt API authentication tokens. Implementations may
+// also provide InvalidateToken() to let Transport refresh cached credentials
+// after Salt returns HTTP 401 Unauthorized.
 type Authenticator interface {
 	Token(ctx context.Context, client *http.Client, baseURL string) (string, error)
 }
