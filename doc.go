@@ -2,8 +2,8 @@
 //
 // The root package defines requests, targets, results, middleware, observers,
 // retry helpers, and transport interfaces. Concrete integrations live in
-// transport subpackages such as transports/rest, while typed response helpers
-// live in packages such as states.
+// transport subpackages such as transports/rest, transport-author helpers live
+// in transportkit, and typed response helpers live in packages such as states.
 //
 // Clients are safe for concurrent use when the underlying Transport is safe for
 // concurrent use. Request and result values should be treated as immutable after
