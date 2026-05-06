@@ -26,19 +26,13 @@ Override with `BRINE_SALT_VERSION` if a different Salt `v3006` patch level is re
 Start the environment:
 
 ```sh
-test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build --force-recreate
+docker compose -f test/integration/compose.yaml up -d --build --force-recreate
 ```
 
 Start with a specific Salt patch version:
 
 ```sh
-BRINE_SALT_VERSION=3006.9 test/integration/scripts/compose.sh -f test/integration/compose.yaml up -d --build --force-recreate
-```
-
-The `compose.sh` wrapper auto-detects Docker Compose v2 (`docker compose`) or the legacy standalone `docker-compose`. You can override detection with:
-
-```sh
-export BRINE_COMPOSE=docker-compose
+BRINE_SALT_VERSION=3006.9 docker compose -f test/integration/compose.yaml up -d --build --force-recreate
 ```
 
 Wait for all minions to respond:
@@ -47,11 +41,7 @@ Wait for all minions to respond:
 test/integration/scripts/wait-ready.sh
 ```
 
-Run integration-tagged tests that do not require a live Salt endpoint:
 
-```sh
-just integration-test
-```
 
 Run REST contract/parity tests against the live Salt environment:
 
@@ -71,10 +61,10 @@ Print a REST/Python compatibility table from the contract suites:
 just compat
 ```
 
-Run all REST integration tests against the live Salt environment:
+Run both contract suites against the live Salt environment:
 
 ```sh
-just integration-test-rest
+just contract
 ```
 
 Capture sanitized REST fixtures:
@@ -86,7 +76,7 @@ test/integration/scripts/capture-rest-fixtures.sh
 Stop and remove containers/volumes:
 
 ```sh
-test/integration/scripts/compose.sh -f test/integration/compose.yaml down -v
+docker compose -f test/integration/compose.yaml down -v
 ```
 
 ## REST defaults

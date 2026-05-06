@@ -1,6 +1,6 @@
 # Justfile for brine
 
-COMPOSE := "test/integration/scripts/compose.sh"
+COMPOSE_FILE := "test/integration/compose.yaml"
 
 # Default recipe
 default: test lint
@@ -25,33 +25,28 @@ fmt:
 tidy:
     go mod tidy
 
-# Start the Salt integration environment
+# Start the Salt integration environment and wait until ready
 integration-up:
-    {{COMPOSE}} -f test/integration/compose.yaml up -d --build --force-recreate
-
-# Wait for the Salt integration environment to be ready
-integration-ready:
+    docker compose -f {{COMPOSE_FILE}} up -d --build --force-recreate
     test/integration/scripts/wait-ready.sh
 
-# Run all integration-tagged tests that do not require a live Salt endpoint
-integration-test:
-    go test -tags=integration ./...
-
 # Run REST transport contract tests against the Salt integration environment
-contract-rest: integration-ready
-    BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -run TestIntegrationRESTContracts -count=1 -v
+contract-rest:
+    test/integration/scripts/wait-ready.sh
+    BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -run TestIntegration -count=1 -v
 
 # Run Python command bridge contract tests against the Salt integration environment
-contract-python: integration-ready
-    BRINE_INTEGRATION=1 go test -tags=integration ./transports/python -run TestIntegrationPythonContracts -count=1 -v
+contract-python:
+    test/integration/scripts/wait-ready.sh
+    BRINE_INTEGRATION=1 go test -tags=integration ./transports/python -run TestIntegration -count=1 -v
 
-# Print REST/Python contract compatibility table against the Salt integration environment
-compat: integration-ready
+# Run all contract tests against the Salt integration environment
+contract: contract-rest contract-python
+
+# Print REST/Python contract compatibility table
+compat:
+    test/integration/scripts/wait-ready.sh
     BRINE_INTEGRATION=1 go run ./cmd/brine-compatcheck
-
-# Run all REST integration tests against the Salt integration environment
-integration-test-rest: integration-ready
-    BRINE_INTEGRATION=1 go test -tags=integration ./transports/rest -count=1 -v
 
 # Capture sanitized REST fixtures from the Salt integration environment
 integration-capture-rest:
@@ -59,7 +54,7 @@ integration-capture-rest:
 
 # Stop and remove the Salt integration environment
 integration-down:
-    {{COMPOSE}} -f test/integration/compose.yaml down -v
+    docker compose -f {{COMPOSE_FILE}} down -v
 
 # Check for clean git state after running fmt and tidy
 check-clean: fmt tidy
