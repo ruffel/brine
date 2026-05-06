@@ -91,9 +91,11 @@ and reads JSON response or streaming frames from stdout. See the
 `transports/python` package documentation for the bridge protocol, supported
 capabilities, and unsupported-error mapping.
 
-## Testing transports
+## Testing and implementing transports
 
 Use `transports/mock` for unit tests and `brinetest` contract tests for custom
-transport implementations. The repository also includes an opt-in Docker Salt
+transport implementations. Transport authors can use `transportkit` to build
+normalized results and classify common Salt failure shapes consistently with
+Brine's built-in transports. The repository also includes an opt-in Docker Salt
 integration harness under `test/integration` for validating REST and Python
 bridge behavior against real Salt.
