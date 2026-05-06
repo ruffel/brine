@@ -122,6 +122,9 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 		if failure := stateFailure(raw); failure != nil {
 			ret.RetCode = 1
 			ret.Failure = failure
+		} else if failure := malformedStateFailure(raw); failure != nil {
+			ret.RetCode = 1
+			ret.Failure = failure
 		}
 	}
 
@@ -157,6 +160,32 @@ func stateFailure(raw json.RawMessage) *brine.Failure {
 	}
 
 	return nil
+}
+
+func malformedStateFailure(raw json.RawMessage) *brine.Failure {
+	if !isMalformedStateReturn(raw) {
+		return nil
+	}
+
+	return &brine.Failure{
+		Kind:    brine.FailureMalformed,
+		Message: "state return is a render error string/list",
+		Raw:     append([]byte(nil), raw...),
+	}
+}
+
+func isMalformedStateReturn(raw json.RawMessage) bool {
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return true
+	}
+
+	var messages []string
+	if err := json.Unmarshal(raw, &messages); err == nil {
+		return true
+	}
+
+	return false
 }
 
 func normalizeLowstateScalar(result *brine.Result, returns []json.RawMessage) error {

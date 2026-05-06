@@ -54,6 +54,32 @@ func TestRunLocalBareFalseIsNotNoReturn(t *testing.T) {
 	assert.Empty(t, result.Missing)
 }
 
+func TestRunLocalMalformedStateReturn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "render string", body: `"Rendering SLS failed"`},
+		{name: "render messages", body: `["Rendering SLS failed"]`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			transport := newHelperTransport(t, `{"local":{"by_minion":{"minion-1":{"return":`+tt.body+`}}}}`)
+			result, err := transport.Run(context.Background(), brine.Local("state.sls", brine.List("minion-1")))
+			require.NoError(t, err)
+			require.False(t, result.OK())
+			failure := result.ByMinion["minion-1"].Failure
+			require.NotNil(t, failure)
+			assert.Equal(t, brine.FailureMalformed, failure.Kind)
+		})
+	}
+}
+
 func TestRunRunnerScalar(t *testing.T) {
 	t.Parallel()
 

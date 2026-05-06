@@ -465,6 +465,53 @@ func TestRunBareFalseMinionReturn(t *testing.T) {
 	assert.Equal(t, 1, result.ByMinion["minion-2"].RetCode)
 }
 
+func TestRunMalformedStateReturn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		ret    string
+		failed bool
+	}{
+		{name: "render string", ret: `"Rendering SLS failed"`, failed: true},
+		{name: "render messages", ret: `["Rendering SLS failed"]`, failed: true},
+		{name: "non-state string", ret: `"plain string"`, failed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte(`{"return":[{"minion-1":` + tt.ret + `}]}`))
+			}))
+			defer server.Close()
+
+			transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeDirect})
+			require.NoError(t, err)
+
+			function := "state.sls"
+			if !tt.failed {
+				function = "test.echo"
+			}
+
+			result, err := transport.Run(context.Background(), brine.Local(function, brine.List("minion-1")))
+			require.NoError(t, err)
+			failure := result.ByMinion["minion-1"].Failure
+			if tt.failed {
+				require.NotNil(t, failure)
+				assert.Equal(t, brine.FailureMalformed, failure.Kind)
+				assert.False(t, result.OK())
+
+				return
+			}
+
+			assert.Nil(t, failure)
+			assert.True(t, result.OK())
+		})
+	}
+}
+
 func TestRunRunnerScalar(t *testing.T) {
 	t.Parallel()
 
