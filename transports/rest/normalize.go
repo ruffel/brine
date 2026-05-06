@@ -80,6 +80,7 @@ func normalizeLocal(result *brine.Result, raw json.RawMessage) error {
 			result.JID = jid
 		}
 	}
+	applyExplicitTargetExpected(result)
 
 	return nil
 }
@@ -89,6 +90,38 @@ func normalizeLocal(result *brine.Result, raw json.RawMessage) error {
 // full_return envelopes containing jid, ret, retcode, and error fields. Async
 // job lookup payloads should add tests before reusing or changing this shape
 // detection.
+func applyExplicitTargetExpected(result *brine.Result) {
+	if result == nil || result.Request == nil || result.Request.Kind != brine.KindLocal {
+		return
+	}
+
+	spec, err := brine.DescribeTarget(result.Request.Target)
+	if err != nil || spec.Type != brine.TargetList {
+		return
+	}
+
+	expected, ok := spec.Expression.([]string)
+	if !ok || len(expected) == 0 {
+		return
+	}
+
+	expected = append([]string(nil), expected...)
+	slices.Sort(expected)
+	result.Expected = expected
+	result.Missing = missingMinions(expected, result.ByMinion)
+}
+
+func missingMinions(expected []string, returned map[string]brine.MinionResult) []string {
+	missing := make([]string, 0)
+	for _, minion := range expected {
+		if _, ok := returned[minion]; !ok {
+			missing = append(missing, minion)
+		}
+	}
+
+	return missing
+}
+
 func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) brine.MinionResult {
 	full := fullMinionReturn{}
 	if err := json.Unmarshal(raw, &full); err == nil && (len(full.Return) > 0 || full.JID != "" || full.RetCode != 0 || full.Error != "") {

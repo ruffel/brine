@@ -65,6 +65,25 @@ func TestRunLocalDirectModePing(t *testing.T) {
 	assert.Equal(t, "*", captured[0]["tgt"])
 }
 
+func TestRunLocalDirectListTargetMarksMissingMinions(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte(`{"return":[{"minion-1":true}]}`))
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}, LocalRunMode: LocalRunModeDirect})
+	require.NoError(t, err)
+
+	result, err := transport.Run(context.Background(), brine.Local("test.ping", brine.List("minion-1", "minion-2")))
+	require.NoError(t, err)
+	assert.False(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Expected)
+	assert.Equal(t, []string{"minion-2"}, result.Missing)
+	assert.Equal(t, []string{"minion-1"}, result.Returned())
+}
+
 func TestRunLocalDefaultUsesAsyncLookupProgress(t *testing.T) {
 	t.Parallel()
 
