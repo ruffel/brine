@@ -127,7 +127,7 @@ func login(ctx context.Context, client *http.Client, baseURL string, payload log
 
 	defer func() { _ = response.Body.Close() }()
 
-	data, err := io.ReadAll(response.Body)
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
 		return "", time.Time{}, brine.NewTransportError("read login response", err)
 	}

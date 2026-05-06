@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	contentTypeJSON = "application/json"
-	transportName   = "rest"
+	contentTypeJSON  = "application/json"
+	transportName    = "rest"
+	maxResponseBytes = 64 * 1024 * 1024 // 64 MiB
 )
 
 // Config configures a rest_cherrypy transport.
@@ -188,7 +189,7 @@ func (t *Transport) postBody(ctx context.Context, body []byte, retryAuth bool) (
 
 	defer func() { _ = response.Body.Close() }()
 
-	data, err := io.ReadAll(response.Body)
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
 		return nil, brine.NewTransportError("read response", err)
 	}
