@@ -82,6 +82,15 @@ When Salt communication succeeds but execution fails, `Client.Run` and
 payloads, returned minions, failed minions, and missing minions for diagnostics
 and recovery.
 
+## Python bridge transport
+
+`transports/python` is a capability-limited command bridge for environments
+where direct REST access is unavailable or unsuitable. Brine starts the helper
+process configured by `python.Config.Command`, sends one JSON request on stdin,
+and reads JSON response or streaming frames from stdout. See the
+`transports/python` package documentation for the bridge protocol, supported
+capabilities, and unsupported-error mapping.
+
 ## Testing transports
 
 Use `transports/mock` for unit tests and `brinetest` contract tests for custom
