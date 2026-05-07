@@ -224,47 +224,83 @@ func FullReturn(v bool) RequestOption {
 
 // Validate checks whether r is structurally valid.
 func (r Request) Validate() error {
-	var errs []error
+	return errors.Join(validateRequestKind(r), validateRequestOptions(r.Options))
+}
 
+func validateRequestKind(r Request) error {
 	switch r.Kind {
 	case KindLocal:
-		if r.Target == nil {
-			errs = append(errs, errors.New("local request requires target"))
-		} else if isEmptyTarget(r.Target) {
-			errs = append(errs, errors.New("local request target cannot be empty"))
-		}
-
-		if r.Function == "" {
-			errs = append(errs, errors.New("local request requires function"))
-		}
+		return errors.Join(validateLocalRequest(r), validateLocalFunction(r.Function))
 	case KindRunner, KindWheel:
-		if r.Function == "" {
-			errs = append(errs, fmt.Errorf("%s request requires function", r.Kind))
-		}
+		return validateNamedRequestKind(r.Kind, r.Function)
 	case KindLowstate:
-		if len(r.Lowstate) == 0 {
-			errs = append(errs, errors.New("lowstate request requires at least one entry"))
-		}
-
-		errs = append(errs, validateLowstateEntries(r.Lowstate))
+		return errors.Join(validateLowstateRequest(r.Lowstate), validateLowstateEntries(r.Lowstate))
 	default:
-		errs = append(errs, fmt.Errorf("unknown request kind %d", r.Kind))
+		return fmt.Errorf("unknown request kind %d", r.Kind)
+	}
+}
+
+func validateLocalRequest(r Request) error {
+	if r.Target == nil {
+		return errors.New("local request requires target")
 	}
 
-	if r.Options.Batch.Count < 0 {
+	if isEmptyTarget(r.Target) {
+		return errors.New("local request target cannot be empty")
+	}
+
+	return nil
+}
+
+func validateLocalFunction(function string) error {
+	if function == "" {
+		return errors.New("local request requires function")
+	}
+
+	return nil
+}
+
+func validateNamedRequestKind(kind RequestKind, function string) error {
+	if function == "" {
+		return fmt.Errorf("%s request requires function", kind)
+	}
+
+	return nil
+}
+
+func validateLowstateRequest(entries []LowstateEntry) error {
+	if len(entries) == 0 {
+		return errors.New("lowstate request requires at least one entry")
+	}
+
+	return nil
+}
+
+func validateRequestOptions(opts RequestOptions) error {
+	var errs []error
+
+	if opts.Batch.Count < 0 {
 		errs = append(errs, errors.New("batch count cannot be negative"))
 	}
 
-	if r.Options.Batch.Count == 0 && r.Options.Batch.Percent < 0 {
+	if opts.Batch.Count == 0 && opts.Batch.Percent < 0 {
 		errs = append(errs, errors.New("batch percent cannot be negative"))
 	}
 
-	if r.Options.Batch.Count > 0 && r.Options.Batch.Percent > 0 {
+	if opts.Batch.Count > 0 && opts.Batch.Percent > 0 {
 		errs = append(errs, errors.New("batch count and percent are mutually exclusive"))
 	}
 
-	if r.Options.Batch.Percent > 100 {
+	if opts.Batch.Percent > 100 {
 		errs = append(errs, errors.New("batch percent cannot exceed 100"))
+	}
+
+	if opts.ModuleTimeout < 0 {
+		errs = append(errs, errors.New("module timeout cannot be negative"))
+	}
+
+	if opts.GatherJobTimeout < 0 {
+		errs = append(errs, errors.New("gather job timeout cannot be negative"))
 	}
 
 	return errors.Join(errs...)

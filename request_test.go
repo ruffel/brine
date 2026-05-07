@@ -2,6 +2,7 @@ package brine
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,6 +51,37 @@ func TestLowstateCopiesCallerOwnedEntries(t *testing.T) {
 	assert.Equal(t, []string{"minion-1"}, req.Lowstate[0].Target)
 	assert.Equal(t, []any{map[string]any{"name": "value"}}, req.Lowstate[0].Args)
 	assert.Equal(t, map[string]any{"pillar": map[string]any{"role": "web"}}, req.Lowstate[0].Kwargs)
+}
+
+func TestValidateRejectsNegativeTimeoutOptions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		req  Request
+		want string
+	}{
+		{
+			name: "module timeout",
+			req:  Local("test.ping", Glob("*"), ModuleTimeout(-time.Second)),
+			want: "module timeout cannot be negative",
+		},
+		{
+			name: "gather job timeout",
+			req:  Local("test.ping", Glob("*"), GatherJobTimeout(-time.Second)),
+			want: "gather job timeout cannot be negative",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tt.req.Validate()
+			require.Error(t, err)
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestMetadataOptionsMergeCallerOwnedMetadata(t *testing.T) {
