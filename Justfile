@@ -4,7 +4,7 @@ COMPOSE := "test/integration/scripts/compose.sh"
 COMPOSE_FILE := "test/integration/compose.yaml"
 
 # Default recipe
-default: test lint
+default: test tools-test lint
 
 # Run all tests with race detection
 test:
@@ -14,6 +14,18 @@ test:
 lint:
     golangci-lint run ./...
 
+# Run deterministic API examples
+examples:
+    go test ./examples/...
+
+# Run tests for the separate optional tools module
+tools-test:
+    go -C tools test ./...
+
+# Run the deterministic demo tool from the separate tools module
+demo *args:
+    go -C tools run ./cmd/brine-demo {{args}}
+
 # Clean build artifacts
 clean:
     go clean
@@ -21,10 +33,12 @@ clean:
 # Run go fmt
 fmt:
     go fmt ./...
+    go -C tools fmt ./...
 
 # Run go mod tidy
 tidy:
     go mod tidy
+    go -C tools mod tidy
 
 # Start the Salt integration environment and wait until ready
 integration-up:
@@ -48,6 +62,11 @@ contract: contract-rest contract-python
 compat:
     test/integration/scripts/wait-ready.sh
     BRINE_INTEGRATION=1 go run ./cmd/brine-compatcheck
+
+# Print REST/Python contract compatibility as JSON
+compat-json:
+    test/integration/scripts/wait-ready.sh
+    BRINE_INTEGRATION=1 go run ./cmd/brine-compatcheck --format json
 
 # Run the brine CLI (defaults to local integration env, override with --url)
 cli *args:

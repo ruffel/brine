@@ -93,9 +93,28 @@ capabilities, and unsupported-error mapping.
 
 ## Testing and implementing transports
 
-Use `transports/mock` for unit tests and `brinetest` contract tests for custom
-transport implementations. Transport authors can use `transportkit` to build
-normalized results and classify common Salt failure shapes consistently with
-Brine's built-in transports. The repository also includes an opt-in Docker Salt
-integration harness under `test/integration` for validating REST and Python
-bridge behavior against real Salt.
+Use `transports/mock` for unit tests and the public `brinetest` package as a
+transport-author contract suite. `brinetest` verifies normalized Brine semantics
+for the capabilities a transport advertises; it does not start, stop, or
+configure Salt. Docker/Salt lifecycle is owned by `test/integration` and the
+Justfile recipes.
+
+Transport authors can use `transportkit` to build normalized results and
+classify common Salt failure shapes consistently with Brine's built-in
+transports. See `TESTING.md` and `test/integration/README.md` for contract and
+integration workflow details.
+
+## Repository tools
+
+- `cmd/brine-compatcheck` runs integration-tagged contract suites and prints the
+  REST/Python compatibility matrix as a styled table or JSON. It can list
+  contracts and filter by category or contract ID. It is a developer
+  compatibility reporter, not a live diagnostic CLI.
+- `cmd/brine` is the live diagnostic CLI for exercising a configured transport
+  and printing normalized JSON or a generic summary for manual debugging. It
+  uses Cobra for command structure and Koanf for flag/env configuration merging.
+- `examples/...` contains deterministic API examples for custom typed wrappers,
+  partial failures, progress observers, and app-owned formatting.
+- `tools/...` is a separate module for optional demos and richer tooling. Root
+  commands can use focused CLI dependencies when useful; richer experiments and
+  TUI-style tools belong under `tools`, not in root examples or commands.

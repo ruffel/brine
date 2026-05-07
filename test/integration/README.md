@@ -1,10 +1,18 @@
 # Brine Salt integration harness
 
 This directory contains an opt-in Salt `v3006` test topology for capturing real
-REST fixtures and running REST integration/contract tests.
+REST fixtures and running REST/Python integration and contract tests.
 
 The harness is intentionally separate from normal unit tests. `go test ./...`
 should not require Docker or Salt.
+
+## Ownership
+
+`test/integration` owns Docker/Salt lifecycle for this repository, with Justfile
+recipes as the normal entry points. The public `brinetest` package is only the
+transport contract suite; it assumes a deterministic environment already exists
+and does not start, stop, or configure containers, Salt masters, minions, or
+volumes.
 
 ## Topology
 
@@ -23,25 +31,19 @@ Override with `BRINE_SALT_VERSION` if a different Salt `v3006` patch level is re
 
 ## Usage
 
-Start the environment:
+Start the environment from the repository root:
+
+```sh
+just integration-up
+```
+
+Manual equivalent; choose one compose command, then wait for readiness:
 
 ```sh
 docker compose -f test/integration/compose.yaml up -d --build --force-recreate
-```
-
-Start with a specific Salt patch version:
-
-```sh
 BRINE_SALT_VERSION=3006.9 docker compose -f test/integration/compose.yaml up -d --build --force-recreate
-```
-
-Wait for all minions to respond:
-
-```sh
 test/integration/scripts/wait-ready.sh
 ```
-
-
 
 Run REST contract/parity tests against the live Salt environment:
 
@@ -60,6 +62,26 @@ Print a REST/Python compatibility table from the contract suites:
 ```
 just compat
 ```
+
+Emit the same compatibility report as JSON for CI artifacts or downstream
+processing:
+
+```
+just compat-json
+```
+
+`just compat` and `just compat-json` run `cmd/brine-compatcheck`, a developer
+compatibility reporter that invokes the integration-tagged contract suites. The
+reporter can also list and filter contracts directly, for example:
+
+```
+go run ./cmd/brine-compatcheck --list-contracts
+go run ./cmd/brine-compatcheck --category state
+go run ./cmd/brine-compatcheck --contract sync/local-test-ping
+```
+
+For live Salt diagnostics, use the separate `cmd/brine` CLI, for example via
+`just cli local test.ping '*'`.
 
 Event-stream contracts use `test.sleep` to avoid racing Salt return events before
 REST `/events` subscriptions are established. The default sleep is two seconds;
@@ -83,6 +105,12 @@ test/integration/scripts/capture-rest-fixtures.sh
 ```
 
 Stop and remove containers/volumes:
+
+```sh
+just integration-down
+```
+
+Manual equivalent:
 
 ```sh
 docker compose -f test/integration/compose.yaml down -v

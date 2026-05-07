@@ -1,15 +1,15 @@
-// Package brinetest provides a reusable behavioral contract suite for Brine
-// transports.
+// Package brinetest provides a public behavioral contract suite for Brine
+// transport authors.
 //
-// The contracts verify normalized public API semantics instead of raw transport
-// payloads, including transport info, local/runner/wheel sync calls, state
-// results, raw lowstate, async wait behavior, event normalization, target
-// resolution, and unsupported operations. Each contract declares required
-// capabilities, capabilities that must be absent, or both. Contracts are skipped
-// when the configured client cannot satisfy those prerequisites. This lets
-// transports with narrower support, such as a future Python command bridge,
-// participate honestly without pretending to match unsupported REST features.
+// The suite verifies normalized Brine API semantics instead of raw transport
+// payloads, including transport info, local/runner/wheel calls, state results,
+// raw lowstate, async wait behavior, event normalization, target resolution,
+// and unsupported operations. Contracts declare required capabilities,
+// capabilities that must be absent, or both, and are skipped when a configured
+// client cannot satisfy those prerequisites.
 //
-// Transport tests should construct a Harness with deterministic Salt states and
-// minions, then call Verify from an opt-in integration test.
+// Use brinetest from opt-in transport tests by constructing a Harness with a
+// deterministic Salt environment and calling Verify. The package does not
+// start, stop, or configure Docker or Salt; repository-owned Salt lifecycle
+// lives under test/integration and the Justfile recipes.
 package brinetest
