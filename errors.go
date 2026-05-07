@@ -172,7 +172,11 @@ func (e *ExecutionError) Error() string {
 	}
 
 	if e.Result == nil {
-		return fmt.Sprintf("%s: %v", ErrExecution, e.cause)
+		if e.cause != nil {
+			return fmt.Sprintf("%s: %v", ErrExecution, e.cause)
+		}
+
+		return ErrExecution.Error()
 	}
 
 	failed := len(e.Failed())
