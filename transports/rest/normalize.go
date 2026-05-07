@@ -121,17 +121,37 @@ func missingMinions(expected []string, returned map[string]brine.MinionResult) [
 	return missing
 }
 
-// normalizeMinion accepts two local return shapes from REST:
+// normalizeMinion accepts two local return shapes produced by Salt's
+// rest_cherrypy API.
 //
-//  1. Bare: {"minion-1": <module return>}
-//     Used by Salt's synchronous local client when full_return is not set.
+// # Bare return (Salt synchronous local client, no full_return)
 //
-//  2. Full return: {"minion-1": {"jid": "...", "ret": <return>, "retcode": 0}}
-//     Used when full_return=True, by some Salt versions, or by job lookup.
+// The outer envelope is keyed by minion ID; the value is the raw module
+// return with no metadata.  Salt 3006 and 3007 both use this shape by default:
 //
-// Shape detection checks for the presence of full_return envelope fields
-// (jid, ret, retcode, error). If any are populated, the return is treated
-// as a full_return envelope; otherwise it is treated as a bare module return.
+//	{"minion-1": true}
+//	{"minion-1": false}
+//	{"minion-1": {"pkg_name": "1.2.3"}}
+//
+// For bare returns the retcode is synthesised from the failure classifiers
+// (bareFalseModules, state-return detection).  A bare false from a module not
+// in BareFalseModules is treated as successful domain data.
+//
+// # Full-return envelope (full_return=True, job lookup, some Salt versions)
+//
+// When full_return=True is set, or when the return is fetched via
+// jobs.lookup_jid, Salt wraps the module return in an envelope containing
+// the job ID, retcode, and a success flag:
+//
+//	{"minion-1": {"jid": "20240101000000000001", "ret": true, "retcode": 0}}
+//	{"minion-1": {"jid": "20240101000000000001", "ret": false, "retcode": 1, "success": false}}
+//	{"minion-1": {"jid": "20240101000000000001", "ret": null, "retcode": 1, "error": "Module not found"}}
+//
+// Shape detection relies on the presence of at least one non-zero envelope
+// field (jid, ret, retcode, error).  When the envelope is detected the retcode
+// and success flag drive failure classification rather than the bare-false
+// heuristics, making full_return the recommended approach for safety-critical
+// modules such as service.status.
 func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) brine.MinionResult {
 	full := fullMinionReturn{}
 	if err := json.Unmarshal(raw, &full); err == nil && (len(full.Return) > 0 || full.JID != "" || full.RetCode != 0 || full.Error != "") {
