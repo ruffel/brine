@@ -81,8 +81,8 @@ type Capabilities struct {
 // NewCapabilities constructs a capability set.
 func NewCapabilities(caps ...Capability) Capabilities {
 	set := make(map[Capability]struct{}, len(caps))
-	for _, cap := range caps {
-		set[cap] = struct{}{}
+	for _, c := range caps {
+		set[c] = struct{}{}
 	}
 
 	return Capabilities{caps: set}
@@ -126,14 +126,14 @@ func (c Capabilities) RequireAll(caps ...Capability) error {
 
 // List returns the capabilities as a stable sorted slice.
 func (c Capabilities) List() []Capability {
-	caps := make([]Capability, 0, len(c.caps))
-	for cap := range c.caps {
-		caps = append(caps, cap)
+	list := make([]Capability, 0, len(c.caps))
+	for capability := range c.caps {
+		list = append(list, capability)
 	}
 
-	slices.Sort(caps)
+	slices.Sort(list)
 
-	return caps
+	return list
 }
 
 // MarshalJSON encodes capabilities as a stable sorted JSON array.
