@@ -182,11 +182,15 @@ func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 	for {
 		result, err := j.transport.lookupLocalJob(waitCtx, j.req, j.jid, j.expected)
 		if err != nil {
-			if accumulator.HasReturns() {
-				return accumulator.Result(), err, false
+			// Always return a non-nil result so the caller can recover the JID
+			// for offline diagnostics, even when no minion data has arrived yet.
+			partial := accumulator.Result()
+			if partial == nil {
+				req := j.req
+				partial = &brine.Result{JID: j.jid, Request: &req}
 			}
 
-			return result, err, false
+			return partial, err, false
 		}
 
 		accumulator.MergeResult(waitCtx, result)

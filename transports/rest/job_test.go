@@ -476,6 +476,45 @@ func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 	}
 }
 
+func TestStartLocalAsyncWaitPreservesJIDOnFirstPollError(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		decodeRESTPayload(t, request)
+
+		switch requestCount {
+		case 1:
+			// async start — returns JID with a known expected set.
+			_, _ = writer.Write([]byte(`{"return":[{"jid":"known-jid","minions":["minion-1"]}]}`))
+		default:
+			// All subsequent lookup_jid calls fail with a server error so there
+			// is never any accumulated minion data before the first error.
+			http.Error(writer, "internal error", http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
+	require.NoError(t, err)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("*")))
+	require.NoError(t, err)
+	assert.Equal(t, "known-jid", job.ID())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	result, err := job.Wait(ctx)
+	require.Error(t, err)
+
+	// Even though no minion data was ever received the returned result must be
+	// non-nil and carry the JID so callers can use it for diagnostics.
+	require.NotNil(t, result, "result must not be nil on first poll error")
+	assert.Equal(t, "known-jid", result.JID, "result JID must survive poll failure")
+}
+
 func decodeRESTPayload(t *testing.T, request *http.Request) {
 	t.Helper()
 
