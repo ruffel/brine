@@ -211,3 +211,27 @@ func TestRetcodeFailure(t *testing.T) {
 	require.NotNil(t, negative, "negative retcode should produce failure")
 	assert.Equal(t, "retcode -1", negative.Message)
 }
+
+// TestBareFalseModulesIsExtensible verifies that callers can add entries to
+// BareFalseModules to classify custom Salt module false returns as failures.
+func TestBareFalseModulesIsExtensible(t *testing.T) { //nolint:paralleltest // modifies the global BareFalseModules map; must run serially.
+	// Note: this test modifies the global map; it cannot run in parallel with
+	// other tests that exercise BareFalseModules.  It cleans up after itself.
+	original, ok := transportkit.BareFalseModules["myorg.create"]
+	defer func() {
+		if ok {
+			transportkit.BareFalseModules["myorg.create"] = original
+		} else {
+			delete(transportkit.BareFalseModules, "myorg.create")
+		}
+	}()
+
+	transportkit.BareFalseModules["myorg.create"] = struct{}{}
+
+	failure := transportkit.BareFalseFailure("myorg.create", []byte(`false`))
+	require.NotNil(t, failure)
+	assert.Equal(t, brine.FailureUnknown, failure.Kind)
+
+	// A function not in the map must not produce a failure.
+	assert.Nil(t, transportkit.BareFalseFailure("myorg.other", []byte(`false`)))
+}

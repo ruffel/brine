@@ -8,9 +8,30 @@ import (
 	"github.com/ruffel/brine"
 )
 
-// bareFalseModules lists Salt execution modules where a bare false return is
-// known to indicate execution failure rather than domain data.
-var bareFalseModules = map[string]struct{}{ //nolint:gochecknoglobals // Package-level lookup table for Salt module classification.
+// BareFalseModules is the set of Salt execution module functions for which a
+// bare JSON false return value represents execution failure rather than domain
+// data.
+//
+// The built-in entries cover modules where Salt's own documentation explicitly
+// uses false to indicate an operation did not succeed (e.g. test.ping, service
+// lifecycle functions, file copy/move/rename, user/group management).  Modules
+// that use false as meaningful domain data (e.g. service.status returning false
+// when a service is stopped, or file.file_exists returning false when a path is
+// absent) must NOT be listed here.
+//
+// This table is intentionally not exhaustive: Salt's module surface is too
+// large and too version-dependent for any library to own authoritatively.  The
+// table covers only the clear-cut cases where false always means failure.
+// Callers may extend or replace this map before any request is dispatched:
+//
+//	if _, ok := transportkit.BareFalseModules["mymodule.create"]; !ok {
+//	    transportkit.BareFalseModules["mymodule.create"] = struct{}{}
+//	}
+//
+// Modules that return full-return envelopes with retcode and success fields do
+// not rely on this table; transport layers classify those returns via retcode
+// and the success field instead.
+var BareFalseModules = map[string]struct{}{ //nolint:gochecknoglobals // Package-level lookup table for Salt module classification.
 	"test.ping":       {},
 	"service.start":   {},
 	"service.stop":    {},
@@ -25,16 +46,22 @@ var bareFalseModules = map[string]struct{}{ //nolint:gochecknoglobals // Package
 	"user.delete":     {},
 	"group.add":       {},
 	"group.delete":    {},
+	// pkg.install, pkg.remove, pkg.upgrade intentionally omitted: they return
+	// an empty dict rather than bare false on some backends, and their failure
+	// classification is better handled via full-return retcodes.
 }
 
 // BareFalseFailure returns a failure for Salt functions where a bare false
 // value is known to represent failed execution rather than domain data.
+//
+// BareFalseFailure consults BareFalseModules; callers may add entries to that
+// map to extend coverage for custom Salt modules.
 func BareFalseFailure(function string, raw json.RawMessage) *brine.Failure {
 	if !IsBareFalse(raw) {
 		return nil
 	}
 
-	if _, known := bareFalseModules[function]; !known {
+	if _, known := BareFalseModules[function]; !known {
 		return nil
 	}
 
