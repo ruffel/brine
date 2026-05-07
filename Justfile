@@ -50,9 +50,9 @@ compat:
     BRINE_INTEGRATION=1 go run ./cmd/brine-compatcheck
 
 # Run the brine CLI against the integration environment
-cli *args:
+cli transport="rest" *args:
     test/integration/scripts/wait-ready.sh
-    BRINE_INTEGRATION=1 BRINE_PASS=saltapi go run ./cmd/brine {{args}}
+    BRINE_INTEGRATION=1 BRINE_PASS=saltapi BRINE_BRIDGE_CMD=test/integration/scripts/python-bridge.sh go run ./cmd/brine --transport {{transport}} {{args}}
 
 # Capture sanitized REST fixtures from the Salt integration environment
 integration-capture-rest:

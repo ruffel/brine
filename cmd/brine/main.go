@@ -32,14 +32,16 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/transports/python"
 	"github.com/ruffel/brine/transports/rest"
 )
 
 const (
-	defaultURL     = "http://127.0.0.1:8000"
-	defaultUser    = "saltapi"
-	defaultEAuth   = "pam"
-	defaultTimeout = 2 * time.Minute
+	defaultURL       = "http://127.0.0.1:8000"
+	defaultUser      = "saltapi"
+	defaultEAuth     = "pam"
+	defaultTransport = "rest"
+	defaultTimeout   = 2 * time.Minute
 
 	minLocalArgs  = 3 // command + function + target
 	minScalarArgs = 2 // command + function
@@ -53,18 +55,20 @@ func main() {
 }
 
 type config struct {
-	url      string
-	user     string
-	pass     string
-	eauth    string
-	token    string
-	timeout  time.Duration
-	full     bool
-	compact  bool
-	command  string
-	function string
-	target   string
-	args     []string
+	transport string
+	url       string
+	user      string
+	pass      string
+	eauth     string
+	token     string
+	bridge    string
+	timeout   time.Duration
+	full      bool
+	compact   bool
+	command   string
+	function  string
+	target    string
+	args      []string
 }
 
 func run(args []string) error {
@@ -73,11 +77,7 @@ func run(args []string) error {
 		return err
 	}
 
-	auth := buildAuth(cfg)
-	transport, err := rest.New(rest.Config{
-		BaseURL: cfg.url,
-		Auth:    auth,
-	})
+	transport, err := buildTransport(cfg)
 	if err != nil {
 		return fmt.Errorf("transport: %w", err)
 	}
@@ -107,12 +107,14 @@ func run(args []string) error {
 
 func parseArgs(args []string) (config, error) {
 	cfg := config{
-		url:     envDefault("BRINE_URL", defaultURL),
-		user:    envDefault("BRINE_USER", defaultUser),
-		pass:    os.Getenv("BRINE_PASS"),
-		eauth:   envDefault("BRINE_EAUTH", defaultEAuth),
-		token:   os.Getenv("BRINE_TOKEN"),
-		timeout: defaultTimeout,
+		transport: envDefault("BRINE_TRANSPORT", defaultTransport),
+		url:       envDefault("BRINE_URL", defaultURL),
+		user:      envDefault("BRINE_USER", defaultUser),
+		pass:      os.Getenv("BRINE_PASS"),
+		eauth:     envDefault("BRINE_EAUTH", defaultEAuth),
+		token:     os.Getenv("BRINE_TOKEN"),
+		bridge:    os.Getenv("BRINE_BRIDGE_CMD"),
+		timeout:   defaultTimeout,
 	}
 
 	positional, err := parseFlags(&cfg, args)
@@ -141,11 +143,13 @@ func parseFlags(cfg *config, args []string) ([]string, error) {
 			cfg.full = true
 		case arg == "--compact":
 			cfg.compact = true
+		case consume(arg, "--transport", &cfg.transport, args, &i):
 		case consume(arg, "--url", &cfg.url, args, &i):
 		case consume(arg, "--user", &cfg.user, args, &i):
 		case consume(arg, "--pass", &cfg.pass, args, &i):
 		case consume(arg, "--eauth", &cfg.eauth, args, &i):
 		case consume(arg, "--token", &cfg.token, args, &i):
+		case consume(arg, "--bridge", &cfg.bridge, args, &i):
 		case consumeDuration(arg, "--timeout", &cfg.timeout, args, &i):
 		case strings.HasPrefix(arg, "-"):
 			return nil, fmt.Errorf("unknown flag %q (use --help)", arg)
@@ -189,20 +193,47 @@ func parseCommand(cfg *config, positional []string) error {
 	return nil
 }
 
-func buildAuth(cfg config) rest.Authenticator {
-	if cfg.token != "" {
-		return rest.StaticToken(cfg.token)
+func buildTransport(cfg config) (brine.Transport, error) {
+	switch cfg.transport {
+	case "rest":
+		return buildRESTTransport(cfg)
+	case "python":
+		return buildPythonTransport(cfg)
+	default:
+		return nil, fmt.Errorf("unknown transport %q (rest|python)", cfg.transport)
+	}
+}
+
+func buildRESTTransport(cfg config) (*rest.Transport, error) {
+	var auth rest.Authenticator
+
+	switch {
+	case cfg.token != "":
+		auth = rest.StaticToken(cfg.token)
+	case cfg.pass != "":
+		auth = &rest.EAuth{
+			Username: cfg.user,
+			Password: cfg.pass,
+			EAuth:    cfg.eauth,
+		}
+	default:
+		auth = rest.NoAuth{}
 	}
 
-	if cfg.pass == "" {
-		return rest.NoAuth{}
+	return rest.New(rest.Config{
+		BaseURL: cfg.url,
+		Auth:    auth,
+	})
+}
+
+func buildPythonTransport(cfg config) (*python.Transport, error) {
+	if cfg.bridge == "" {
+		return nil, errors.New("python transport requires --bridge or BRINE_BRIDGE_CMD")
 	}
 
-	return &rest.EAuth{
-		Username: cfg.user,
-		Password: cfg.pass,
-		EAuth:    cfg.eauth,
-	}
+	return python.New(python.Config{
+		Command: cfg.bridge,
+	})
 }
 
 func buildOpts(cfg config) []brine.RequestOption {
@@ -407,12 +438,18 @@ Commands:
   wheel <function> [args...]            Execute a wheel module
   info                                  Print transport info and capabilities
 
-Flags:
-  --url <url>       Salt API URL          (env: BRINE_URL, default: %s)
-  --user <user>     Salt API username      (env: BRINE_USER, default: %s)
-  --pass <pass>     Salt API password      (env: BRINE_PASS)
-  --eauth <eauth>   Salt eauth backend     (env: BRINE_EAUTH, default: %s)
-  --token <token>   Static Salt API token  (env: BRINE_TOKEN)
+Transport flags:
+  --transport <t>   Transport backend      (env: BRINE_TRANSPORT, default: %s)
+  --bridge <cmd>    Python bridge command  (env: BRINE_BRIDGE_CMD, python only)
+
+REST flags:
+  --url <url>       Salt API URL           (env: BRINE_URL, default: %s)
+  --user <user>     Salt API username       (env: BRINE_USER, default: %s)
+  --pass <pass>     Salt API password       (env: BRINE_PASS)
+  --eauth <eauth>   Salt eauth backend      (env: BRINE_EAUTH, default: %s)
+  --token <token>   Static Salt API token   (env: BRINE_TOKEN)
+
+General flags:
   --timeout <dur>   Request timeout        (default: %s)
   --full            Send full_return=true
   --compact         Print compact JSON (no indentation)
@@ -425,8 +462,10 @@ Examples:
   brine runner manage.alived
   brine wheel key.list_all
   brine --url https://salt:8000 --pass secret local test.ping '*'
+  brine --transport python --bridge ./bridge.sh local test.ping '*'
 
 Environment:
-  BRINE_URL, BRINE_USER, BRINE_PASS, BRINE_EAUTH, BRINE_TOKEN
-`, defaultURL, defaultUser, defaultEAuth, defaultTimeout)
+  BRINE_TRANSPORT, BRINE_URL, BRINE_USER, BRINE_PASS, BRINE_EAUTH,
+  BRINE_TOKEN, BRINE_BRIDGE_CMD
+`, defaultTransport, defaultURL, defaultUser, defaultEAuth, defaultTimeout)
 }
