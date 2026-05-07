@@ -56,39 +56,39 @@ func TestConfigFromCommandMergesEnvAndChangedFlags(t *testing.T) {
 	}
 }
 
-func TestConfigureStateSLSWithListTargetAndJSONFlags(t *testing.T) {
+func TestStateOptionsKeepCommandStateSeparateFromGlobalConfig(t *testing.T) {
 	t.Parallel()
 
 	cfg := config{targetType: "list", output: "summary", pillarJSON: `{"version":"1.2.3"}`}
-	if err := configureStateSLS(&cfg, []string{"minion-1,minion-2", "brine.success"}); err != nil {
-		t.Fatalf("configureStateSLS returned error: %v", err)
+	opts := stateOptions{
+		config: cfg,
+		kind:   "sls",
+		target: "minion-1,minion-2",
+		sls:    "brine.success",
 	}
 
-	if cfg.command != "state" || cfg.subcommand != "sls" || cfg.function != "brine.success" {
-		t.Fatalf("unexpected parsed command: %+v", cfg)
+	if opts.kind != "sls" || opts.sls != "brine.success" {
+		t.Fatalf("unexpected state options: %+v", opts)
 	}
-	if cfg.targetType != "list" || cfg.target != "minion-1,minion-2" || cfg.output != "summary" {
-		t.Fatalf("unexpected target/output parsing: %+v", cfg)
+	if opts.config.targetType != "list" || opts.target != "minion-1,minion-2" || opts.config.output != "summary" {
+		t.Fatalf("unexpected target/output parsing: %+v", opts)
 	}
 }
 
-func TestConfigureJobsLookup(t *testing.T) {
+func TestJobsOptionsKeepLookupJIDSeparateFromGlobalConfig(t *testing.T) {
 	t.Parallel()
 
-	cfg := config{}
-	if err := configureJobsLookup(&cfg, []string{"20240101000000000000"}); err != nil {
-		t.Fatalf("configureJobsLookup returned error: %v", err)
-	}
+	opts := jobsOptions{kind: "lookup", jid: "20240101000000000000"}
 
-	if cfg.command != "jobs" || cfg.subcommand != "lookup" || cfg.jid != "20240101000000000000" {
-		t.Fatalf("unexpected parsed jobs command: %+v", cfg)
+	if opts.kind != "lookup" || opts.jid != "20240101000000000000" {
+		t.Fatalf("unexpected jobs options: %+v", opts)
 	}
 }
 
 func TestBuildTargetListSplitsCommaSeparatedMinions(t *testing.T) {
 	t.Parallel()
 
-	target, err := buildTarget(config{targetType: "list", target: "minion-1, minion-2,,"})
+	target, err := buildTarget(config{targetType: "list"}, "minion-1, minion-2,,")
 	if err != nil {
 		t.Fatalf("buildTarget returned error: %v", err)
 	}
@@ -110,10 +110,9 @@ func TestBuildRequestArgsCombinesStringAndJSONArgs(t *testing.T) {
 	t.Parallel()
 
 	args, err := buildRequestArgs(config{
-		args:     []string{"plain"},
 		argJSON:  `{"enabled":true}`,
 		argsJSON: `["tail",2]`,
-	})
+	}, []string{"plain"})
 	if err != nil {
 		t.Fatalf("buildRequestArgs returned error: %v", err)
 	}

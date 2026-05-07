@@ -64,21 +64,56 @@ type config struct {
 	progress   bool
 	output     string
 	targetType string
-	command    string
-	subcommand string
-	function   string
-	target     string
-	jid        string
-	args       []string
 	argJSON    string
 	argsJSON   string
 	kwargsJSON string
 	pillarJSON string
 }
 
-type commandAction func(context.Context, *brine.Client, config) error
+type ioStreams struct {
+	out    io.Writer
+	errOut io.Writer
+}
 
-type commandConfigurer func(*config, []string) error
+type clientAction func(context.Context, *brine.Client, config) error
+
+type resolveOptions struct {
+	config config
+	io     *ioStreams
+	target string
+}
+
+type localOptions struct {
+	config   config
+	io       *ioStreams
+	function string
+	target   string
+	args     []string
+}
+
+type scalarOptions struct {
+	config   config
+	io       *ioStreams
+	kind     brine.RequestKind
+	function string
+	args     []string
+}
+
+type stateOptions struct {
+	config config
+	io     *ioStreams
+	kind   string
+	target string
+	sls    string
+	args   []string
+}
+
+type jobsOptions struct {
+	config config
+	io     *ioStreams
+	kind   string
+	jid    string
+}
 
 func run(args []string) error {
 	cmd := newRootCommand(os.Stdout, os.Stderr)
@@ -88,6 +123,7 @@ func run(args []string) error {
 }
 
 func newRootCommand(stdout io.Writer, stderr io.Writer) *cobra.Command {
+	streams := &ioStreams{out: stdout, errOut: stderr}
 	cmd := &cobra.Command{
 		Use:           "brine",
 		Short:         "diagnostic CLI for the Brine Salt client library",
@@ -103,15 +139,15 @@ func newRootCommand(stdout io.Writer, stderr io.Writer) *cobra.Command {
 
 	addGlobalFlags(cmd.PersistentFlags())
 	cmd.AddCommand(
-		newInfoCommand(),
-		newCapabilitiesCommand(),
-		newResolveCommand(),
-		newEventsCommand(),
-		newLocalCommand(),
-		newRunnerCommand(),
-		newWheelCommand(),
-		newStateCommand(),
-		newJobsCommand(),
+		newInfoCommand(streams),
+		newCapabilitiesCommand(streams),
+		newResolveCommand(streams),
+		newEventsCommand(streams),
+		newLocalCommand(streams),
+		newRunnerCommand(streams),
+		newWheelCommand(streams),
+		newStateCommand(streams),
+		newJobsCommand(streams),
 	)
 
 	return cmd
@@ -137,213 +173,228 @@ func addGlobalFlags(flags *pflag.FlagSet) {
 	flags.Bool("compact", false, "print compact JSON")
 }
 
-func newInfoCommand() *cobra.Command {
+func newInfoCommand(streams *ioStreams) *cobra.Command {
 	return &cobra.Command{
 		Use:   "info",
 		Short: "Print transport info and capabilities",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClientCommand(cmd, args, configureCommand("info", ""), runInfo)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				return runInfo(ctx, client, cfg, streams)
+			})
 		},
 	}
 }
 
-func newCapabilitiesCommand() *cobra.Command {
+func newCapabilitiesCommand(streams *ioStreams) *cobra.Command {
 	return &cobra.Command{
 		Use:   "capabilities",
 		Short: "Print transport capabilities",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClientCommand(cmd, args, configureCommand("capabilities", ""), runCapabilities)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				return runCapabilities(ctx, client, cfg, streams)
+			})
 		},
 	}
 }
 
-func newResolveCommand() *cobra.Command {
+func newResolveCommand(streams *ioStreams) *cobra.Command {
+	opts := &resolveOptions{io: streams}
+
 	return &cobra.Command{
 		Use:   "resolve <target>",
 		Short: "Resolve a target to minion IDs",
 		Args:  cobra.ExactArgs(minStateHighstateArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClientCommand(cmd, args, configureResolve, runResolve)
+			opts.target = args[0]
+
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				opts.config = cfg
+
+				return opts.run(ctx, client)
+			})
 		},
 	}
 }
 
-func newEventsCommand() *cobra.Command {
+func newEventsCommand(streams *ioStreams) *cobra.Command {
 	return &cobra.Command{
 		Use:   "events",
 		Short: "Print Salt events as JSON lines",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClientCommand(cmd, args, configureCommand("events", ""), runEvents)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				return runEvents(ctx, client, cfg, streams)
+			})
 		},
 	}
 }
 
-func newLocalCommand() *cobra.Command {
+func newLocalCommand(streams *ioStreams) *cobra.Command {
+	opts := &localOptions{io: streams}
+
 	return &cobra.Command{
 		Use:   "local <function> <target> [args...]",
 		Short: "Execute a local Salt module",
 		Args:  cobra.MinimumNArgs(minLocalArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClientCommand(cmd, args, configureLocal, runLocal)
+			opts.function = args[0]
+			opts.target = args[1]
+			opts.args = args[2:]
+
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				opts.config = cfg
+
+				return opts.run(ctx, client)
+			})
 		},
 	}
 }
 
-func newRunnerCommand() *cobra.Command {
+func newRunnerCommand(streams *ioStreams) *cobra.Command {
+	return newScalarCommand(streams, "runner", brine.KindRunner)
+}
+
+func newWheelCommand(streams *ioStreams) *cobra.Command {
+	return newScalarCommand(streams, "wheel", brine.KindWheel)
+}
+
+func newScalarCommand(streams *ioStreams, use string, kind brine.RequestKind) *cobra.Command {
+	opts := &scalarOptions{io: streams, kind: kind}
+
 	return &cobra.Command{
-		Use:   "runner <function> [args...]",
-		Short: "Execute a runner module",
+		Use:   use + " <function> [args...]",
+		Short: "Execute a " + use + " module",
 		Args:  cobra.MinimumNArgs(minScalarArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClientCommand(cmd, args, configureScalar("runner"), runRunner)
+			opts.function = args[0]
+			opts.args = args[1:]
+
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				opts.config = cfg
+
+				return opts.run(ctx, client)
+			})
 		},
 	}
 }
 
-func newWheelCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "wheel <function> [args...]",
-		Short: "Execute a wheel module",
-		Args:  cobra.MinimumNArgs(minScalarArgs),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runClientCommand(cmd, args, configureScalar("wheel"), runWheel)
-		},
-	}
-}
-
-func newStateCommand() *cobra.Command {
+func newStateCommand(streams *ioStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "state",
 		Short: "Execute Salt state functions",
 	}
 	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "sls <target> <sls> [args...]",
-			Short: "Execute state.sls",
-			Args:  cobra.MinimumNArgs(minStateSLSArgs),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return runClientCommand(cmd, args, configureStateSLS, runState)
-			},
-		},
-		&cobra.Command{
-			Use:   "highstate <target> [args...]",
-			Short: "Execute state.highstate",
-			Args:  cobra.MinimumNArgs(minStateHighstateArgs),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return runClientCommand(cmd, args, configureStateHighstate, runState)
-			},
-		},
+		newStateSLSCommand(streams),
+		newStateHighstateCommand(streams),
 	)
 
 	return cmd
 }
 
-func newJobsCommand() *cobra.Command {
+func newStateSLSCommand(streams *ioStreams) *cobra.Command {
+	opts := &stateOptions{io: streams, kind: "sls"}
+
+	return &cobra.Command{
+		Use:   "sls <target> <sls> [args...]",
+		Short: "Execute state.sls",
+		Args:  cobra.MinimumNArgs(minStateSLSArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.target = args[0]
+			opts.sls = args[1]
+			opts.args = args[2:]
+
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				opts.config = cfg
+
+				return opts.run(ctx, client)
+			})
+		},
+	}
+}
+
+func newStateHighstateCommand(streams *ioStreams) *cobra.Command {
+	opts := &stateOptions{io: streams, kind: "highstate"}
+
+	return &cobra.Command{
+		Use:   "highstate <target> [args...]",
+		Short: "Execute state.highstate",
+		Args:  cobra.MinimumNArgs(minStateHighstateArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.target = args[0]
+			opts.args = args[1:]
+
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				opts.config = cfg
+
+				return opts.run(ctx, client)
+			})
+		},
+	}
+}
+
+func newJobsCommand(streams *ioStreams) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "jobs",
 		Short: "Execute Salt jobs runner helpers",
 	}
 	cmd.AddCommand(
-		&cobra.Command{
-			Use:   "active",
-			Short: "Execute jobs.active",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return runClientCommand(cmd, args, configureCommand("jobs", "active"), runJobs)
-			},
-		},
-		&cobra.Command{
-			Use:   "list",
-			Short: "Execute jobs.list_jobs",
-			Args:  cobra.NoArgs,
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return runClientCommand(cmd, args, configureCommand("jobs", "list"), runJobs)
-			},
-		},
-		&cobra.Command{
-			Use:   "lookup <jid>",
-			Short: "Execute jobs.lookup_jid",
-			Args:  cobra.ExactArgs(jobsLookupArgs),
-			RunE: func(cmd *cobra.Command, args []string) error {
-				return runClientCommand(cmd, args, configureJobsLookup, runJobs)
-			},
-		},
+		newJobsActiveCommand(streams),
+		newJobsListCommand(streams),
+		newJobsLookupCommand(streams),
 	)
 
 	return cmd
 }
 
-func configureCommand(command string, subcommand string) commandConfigurer {
-	return func(cfg *config, _ []string) error {
-		cfg.command = command
-		cfg.subcommand = subcommand
+func newJobsActiveCommand(streams *ioStreams) *cobra.Command {
+	return newJobsSubcommand(streams, "active", "Execute jobs.active", cobra.NoArgs)
+}
 
-		return nil
+func newJobsListCommand(streams *ioStreams) *cobra.Command {
+	return newJobsSubcommand(streams, "list", "Execute jobs.list_jobs", cobra.NoArgs)
+}
+
+func newJobsSubcommand(streams *ioStreams, kind string, short string, args cobra.PositionalArgs) *cobra.Command {
+	opts := &jobsOptions{io: streams, kind: kind}
+
+	return &cobra.Command{
+		Use:   kind,
+		Short: short,
+		Args:  args,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				opts.config = cfg
+
+				return opts.run(ctx, client)
+			})
+		},
 	}
 }
 
-func configureResolve(cfg *config, args []string) error {
-	cfg.command = "resolve"
-	cfg.target = args[0]
+func newJobsLookupCommand(streams *ioStreams) *cobra.Command {
+	opts := &jobsOptions{io: streams, kind: "lookup"}
 
-	return nil
-}
+	return &cobra.Command{
+		Use:   "lookup <jid>",
+		Short: "Execute jobs.lookup_jid",
+		Args:  cobra.ExactArgs(jobsLookupArgs),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.jid = args[0]
 
-func configureLocal(cfg *config, args []string) error {
-	cfg.command = "local"
-	cfg.function = args[0]
-	cfg.target = args[1]
-	cfg.args = args[2:]
+			return runClientCommand(cmd, func(ctx context.Context, client *brine.Client, cfg config) error {
+				opts.config = cfg
 
-	return nil
-}
-
-func configureScalar(command string) commandConfigurer {
-	return func(cfg *config, args []string) error {
-		cfg.command = command
-		cfg.function = args[0]
-		cfg.args = args[1:]
-
-		return nil
+				return opts.run(ctx, client)
+			})
+		},
 	}
 }
 
-func configureStateSLS(cfg *config, args []string) error {
-	cfg.command = "state"
-	cfg.subcommand = "sls"
-	cfg.target = args[0]
-	cfg.function = args[1]
-	cfg.args = args[2:]
-
-	return nil
-}
-
-func configureStateHighstate(cfg *config, args []string) error {
-	cfg.command = "state"
-	cfg.subcommand = "highstate"
-	cfg.target = args[0]
-	cfg.args = args[1:]
-
-	return nil
-}
-
-func configureJobsLookup(cfg *config, args []string) error {
-	cfg.command = "jobs"
-	cfg.subcommand = "lookup"
-	cfg.jid = args[0]
-
-	return nil
-}
-
-func runClientCommand(cmd *cobra.Command, args []string, configure commandConfigurer, action commandAction) error {
+func runClientCommand(cmd *cobra.Command, action clientAction) error {
 	cfg, err := configFromCommand(cmd)
 	if err != nil {
-		return err
-	}
-	if err := configure(&cfg, args); err != nil {
 		return err
 	}
 
@@ -523,25 +574,25 @@ func buildPythonTransport(cfg config) (*python.Transport, error) {
 	})
 }
 
-func buildTarget(cfg config) (brine.Target, error) {
+func buildTarget(cfg config, target string) (brine.Target, error) {
 	switch strings.ToLower(cfg.targetType) {
 	case "glob", "":
-		return brine.Glob(cfg.target), nil
+		return brine.Glob(target), nil
 	case "list":
-		minions := splitCommaList(cfg.target)
+		minions := splitCommaList(target)
 		if len(minions) == 0 {
 			return nil, errors.New("list target requires at least one minion")
 		}
 
 		return brine.List(minions...), nil
 	case "compound":
-		return brine.Compound(cfg.target), nil
+		return brine.Compound(target), nil
 	case "grain":
-		return brine.Grain(cfg.target), nil
+		return brine.Grain(target), nil
 	case "pillar":
-		return brine.Pillar(cfg.target), nil
+		return brine.Pillar(target), nil
 	case "nodegroup":
-		return brine.NodeGroup(cfg.target), nil
+		return brine.NodeGroup(target), nil
 	default:
 		return nil, fmt.Errorf("unknown target type %q (glob|list|compound|grain|pillar|nodegroup)", cfg.targetType)
 	}
@@ -587,8 +638,8 @@ func buildOpts(cfg config) ([]brine.RequestOption, error) {
 	return opts, nil
 }
 
-func buildRequestArgs(cfg config) ([]any, error) {
-	out := buildStringArgs(cfg.args)
+func buildRequestArgs(cfg config, rawArgs []string) ([]any, error) {
+	out := buildStringArgs(rawArgs)
 	if cfg.argJSON != "" {
 		value, err := parseJSONValue(cfg.argJSON)
 		if err != nil {
@@ -654,25 +705,25 @@ func parseJSONValue(raw string) (any, error) {
 	return value, nil
 }
 
-func runInfo(ctx context.Context, client *brine.Client, cfg config) error {
+func runInfo(ctx context.Context, client *brine.Client, cfg config, streams *ioStreams) error {
 	info, err := client.Info(ctx)
 	if err != nil {
 		return err
 	}
 
-	return printJSON(info, cfg.compact)
+	return printJSON(streams.out, info, cfg.compact)
 }
 
-func runCapabilities(_ context.Context, client *brine.Client, cfg config) error {
+func runCapabilities(_ context.Context, client *brine.Client, cfg config, streams *ioStreams) error {
 	output := struct {
 		Capabilities []brine.Capability `json:"capabilities"`
 	}{Capabilities: client.Capabilities().List()}
 
-	return printJSON(output, cfg.compact)
+	return printJSON(streams.out, output, cfg.compact)
 }
 
-func runResolve(ctx context.Context, client *brine.Client, cfg config) error {
-	target, err := buildTarget(cfg)
+func (o *resolveOptions) run(ctx context.Context, client *brine.Client) error {
+	target, err := buildTarget(o.config, o.target)
 	if err != nil {
 		return err
 	}
@@ -682,27 +733,27 @@ func runResolve(ctx context.Context, client *brine.Client, cfg config) error {
 		return err
 	}
 
-	if cfg.output == "summary" {
+	if o.config.output == "summary" {
 		for _, minion := range minions {
-			_, _ = fmt.Fprintln(os.Stdout, minion)
+			_, _ = fmt.Fprintln(o.io.out, minion)
 		}
 
 		return nil
 	}
 
-	return printJSON(struct {
+	return printJSON(o.io.out, struct {
 		Minions []string `json:"minions"`
-	}{Minions: minions}, cfg.compact)
+	}{Minions: minions}, o.config.compact)
 }
 
-func runEvents(ctx context.Context, client *brine.Client, cfg config) error {
+func runEvents(ctx context.Context, client *brine.Client, cfg config, streams *ioStreams) error {
 	stream, err := client.Events(ctx, brine.EventFilter{})
 	if err != nil {
 		return err
 	}
 	defer stream.Close() //nolint:errcheck // Best-effort cleanup in a CLI.
 
-	encoder := json.NewEncoder(os.Stdout)
+	encoder := json.NewEncoder(streams.out)
 	for {
 		event, err := stream.Recv(ctx)
 		if err != nil {
@@ -714,7 +765,7 @@ func runEvents(ctx context.Context, client *brine.Client, cfg config) error {
 		}
 
 		if cfg.output == "summary" {
-			_, _ = fmt.Fprintf(os.Stdout, "%s jid=%s minion=%s\n", event.Type, event.JID, event.Minion)
+			_, _ = fmt.Fprintf(streams.out, "%s jid=%s minion=%s\n", event.Type, event.JID, event.Minion)
 
 			continue
 		}
@@ -745,116 +796,107 @@ func eventJSON(event brine.Event) eventJSONOutput {
 	}
 }
 
-func runLocal(ctx context.Context, client *brine.Client, cfg config) error {
-	opts, err := buildOpts(cfg)
+func (o *localOptions) run(ctx context.Context, client *brine.Client) error {
+	opts, err := requestOptions(o.config, o.args)
 	if err != nil {
 		return err
 	}
 
-	args, err := buildRequestArgs(cfg)
-	if err != nil {
-		return err
-	}
-	if len(args) > 0 {
-		opts = append(opts, brine.Args(args...))
-	}
-
-	target, err := buildTarget(cfg)
+	target, err := buildTarget(o.config, o.target)
 	if err != nil {
 		return err
 	}
 
-	req := brine.Local(cfg.function, target, opts...)
-	result, runErr := client.Run(ctx, req, runOptions(cfg)...)
+	req := brine.Local(o.function, target, opts...)
+	result, runErr := client.Run(ctx, req, runOptions(o.config, o.io.errOut)...)
 
-	return printResult(result, runErr, cfg)
+	return printResult(o.io.out, result, runErr, o.config)
 }
 
-func runRunner(ctx context.Context, client *brine.Client, cfg config) error {
-	return runScalar(ctx, client, cfg, brine.Runner)
-}
-
-func runWheel(ctx context.Context, client *brine.Client, cfg config) error {
-	return runScalar(ctx, client, cfg, brine.Wheel)
-}
-
-func runScalar(
-	ctx context.Context,
-	client *brine.Client,
-	cfg config,
-	build func(string, ...brine.RequestOption) brine.Request,
-) error {
-	opts, err := buildOpts(cfg)
-	if err != nil {
-		return err
-	}
-
-	args, err := buildRequestArgs(cfg)
-	if err != nil {
-		return err
-	}
-	if len(args) > 0 {
-		opts = append(opts, brine.Args(args...))
-	}
-
-	result, runErr := client.Run(ctx, build(cfg.function, opts...), runOptions(cfg)...)
-
-	return printResult(result, runErr, cfg)
-}
-
-func runState(ctx context.Context, client *brine.Client, cfg config) error {
-	opts, err := buildOpts(cfg)
-	if err != nil {
-		return err
-	}
-
-	args, err := buildRequestArgs(cfg)
-	if err != nil {
-		return err
-	}
-	if len(args) > 0 {
-		opts = append(opts, brine.Args(args...))
-	}
-
-	target, err := buildTarget(cfg)
+func (o *scalarOptions) run(ctx context.Context, client *brine.Client) error {
+	opts, err := requestOptions(o.config, o.args)
 	if err != nil {
 		return err
 	}
 
 	var req brine.Request
-	switch cfg.subcommand {
+	//nolint:exhaustive // Scalar CLI commands intentionally support only runner and wheel requests.
+	switch o.kind {
+	case brine.KindRunner:
+		req = brine.Runner(o.function, opts...)
+	case brine.KindWheel:
+		req = brine.Wheel(o.function, opts...)
+	default:
+		return fmt.Errorf("unknown scalar request kind %s", o.kind)
+	}
+
+	result, runErr := client.Run(ctx, req, runOptions(o.config, o.io.errOut)...)
+
+	return printResult(o.io.out, result, runErr, o.config)
+}
+
+func (o *stateOptions) run(ctx context.Context, client *brine.Client) error {
+	opts, err := requestOptions(o.config, o.args)
+	if err != nil {
+		return err
+	}
+
+	target, err := buildTarget(o.config, o.target)
+	if err != nil {
+		return err
+	}
+
+	var req brine.Request
+	switch o.kind {
 	case "sls":
-		req = states.SLS(target, cfg.function, opts...)
+		req = states.SLS(target, o.sls, opts...)
 	case "highstate":
 		req = states.Highstate(target, opts...)
 	default:
-		return fmt.Errorf("unknown state command %q", cfg.subcommand)
+		return fmt.Errorf("unknown state command %q", o.kind)
 	}
 
-	result, runErr := client.Run(ctx, req, runOptions(cfg)...)
+	result, runErr := client.Run(ctx, req, runOptions(o.config, o.io.errOut)...)
 
-	return printResult(result, runErr, cfg)
+	return printResult(o.io.out, result, runErr, o.config)
 }
 
-func runJobs(ctx context.Context, client *brine.Client, cfg config) error {
+func (o *jobsOptions) run(ctx context.Context, client *brine.Client) error {
 	var req brine.Request
-	switch cfg.subcommand {
+	switch o.kind {
 	case "active":
 		req = brine.Runner("jobs.active")
 	case "list":
 		req = brine.Runner("jobs.list_jobs")
 	case "lookup":
-		req = brine.Runner("jobs.lookup_jid", brine.Args(cfg.jid))
+		req = brine.Runner("jobs.lookup_jid", brine.Args(o.jid))
 	default:
-		return fmt.Errorf("unknown jobs command %q", cfg.subcommand)
+		return fmt.Errorf("unknown jobs command %q", o.kind)
 	}
 
-	result, runErr := client.Run(ctx, req, runOptions(cfg)...)
+	result, runErr := client.Run(ctx, req, runOptions(o.config, o.io.errOut)...)
 
-	return printResult(result, runErr, cfg)
+	return printResult(o.io.out, result, runErr, o.config)
 }
 
-func runOptions(cfg config) []brine.RunOption {
+func requestOptions(cfg config, rawArgs []string) ([]brine.RequestOption, error) {
+	opts, err := buildOpts(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	args, err := buildRequestArgs(cfg, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	if len(args) > 0 {
+		opts = append(opts, brine.Args(args...))
+	}
+
+	return opts, nil
+}
+
+func runOptions(cfg config, stderr io.Writer) []brine.RunOption {
 	if !cfg.progress {
 		return nil
 	}
@@ -864,7 +906,7 @@ func runOptions(cfg config) []brine.RunOption {
 		switch event.Type {
 		case brine.EventRequestStarted, brine.EventExpectedMinions, brine.EventMinionReturned,
 			brine.EventRequestCompleted, brine.EventRequestFailed:
-			_, _ = fmt.Fprintf(os.Stderr, "progress: %s jid=%s minion=%s\n", event.Type, event.JID, event.Minion)
+			_, _ = fmt.Fprintf(stderr, "progress: %s jid=%s minion=%s\n", event.Type, event.JID, event.Minion)
 		default:
 			return
 		}
@@ -873,15 +915,15 @@ func runOptions(cfg config) []brine.RunOption {
 	return []brine.RunOption{brine.WithRunObserver(observer)}
 }
 
-func printResult(result *brine.Result, runErr error, cfg config) error {
+func printResult(stdout io.Writer, result *brine.Result, runErr error, cfg config) error {
 	switch strings.ToLower(cfg.output) {
 	case "json", "":
 		output := buildOutput(result, runErr)
-		if err := printJSON(output, cfg.compact); err != nil {
+		if err := printJSON(stdout, output, cfg.compact); err != nil {
 			return err
 		}
 	case "summary":
-		if err := printResultSummary(result, runErr); err != nil {
+		if err := printResultSummary(stdout, result, runErr); err != nil {
 			return err
 		}
 	default:
@@ -969,27 +1011,27 @@ func buildOutput(result *brine.Result, err error) resultOutput {
 	return output
 }
 
-func printResultSummary(result *brine.Result, runErr error) error {
+func printResultSummary(stdout io.Writer, result *brine.Result, runErr error) error {
 	if runErr != nil {
-		_, _ = fmt.Fprintf(os.Stdout, "error: %v\n", runErr)
+		_, _ = fmt.Fprintf(stdout, "error: %v\n", runErr)
 	}
 
 	if result == nil {
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(os.Stdout, "ok: %t\n", result.OK())
+	_, _ = fmt.Fprintf(stdout, "ok: %t\n", result.OK())
 	if result.JID != "" {
-		_, _ = fmt.Fprintf(os.Stdout, "jid: %s\n", result.JID)
+		_, _ = fmt.Fprintf(stdout, "jid: %s\n", result.JID)
 	}
 	if len(result.Expected) > 0 {
-		_, _ = fmt.Fprintf(os.Stdout, "expected: %s\n", strings.Join(result.Expected, ","))
+		_, _ = fmt.Fprintf(stdout, "expected: %s\n", strings.Join(result.Expected, ","))
 	}
 	if returned := result.Returned(); len(returned) > 0 {
-		_, _ = fmt.Fprintf(os.Stdout, "returned: %s\n", strings.Join(returned, ","))
+		_, _ = fmt.Fprintf(stdout, "returned: %s\n", strings.Join(returned, ","))
 	}
 	if len(result.Missing) > 0 {
-		_, _ = fmt.Fprintf(os.Stdout, "missing: %s\n", strings.Join(result.Missing, ","))
+		_, _ = fmt.Fprintf(stdout, "missing: %s\n", strings.Join(result.Missing, ","))
 	}
 	if failures := result.Failures(); len(failures) > 0 {
 		failed := make([]string, 0, len(failures))
@@ -998,12 +1040,12 @@ func printResultSummary(result *brine.Result, runErr error) error {
 				failed = append(failed, failure.Minion)
 			}
 		}
-		_, _ = fmt.Fprintf(os.Stdout, "failed: %s\n", strings.Join(failed, ","))
+		_, _ = fmt.Fprintf(stdout, "failed: %s\n", strings.Join(failed, ","))
 	}
 
 	if len(result.ByMinion) > 0 {
-		_, _ = fmt.Fprintln(os.Stdout)
-		writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(stdout)
+		writer := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(writer, "MINION\tRETCODE\tSTATUS\tFAILURE")
 		for _, minion := range result.Returned() {
 			ret := result.ByMinion[minion]
@@ -1023,25 +1065,25 @@ func printResultSummary(result *brine.Result, runErr error) error {
 		}
 	}
 
-	printStateSummary(result)
+	printStateSummary(stdout, result)
 
 	return nil
 }
 
-func printStateSummary(result *brine.Result) {
+func printStateSummary(stdout io.Writer, result *brine.Result) {
 	if result == nil || result.Request == nil || !states.IsStateRequest(*result.Request) {
 		return
 	}
 
 	decoded, err := states.Decode(result)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stdout, "\nstate decode error: %v\n", err)
+		_, _ = fmt.Fprintf(stdout, "\nstate decode error: %v\n", err)
 
 		return
 	}
 
-	_, _ = fmt.Fprintln(os.Stdout)
-	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(stdout)
+	writer := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(writer, "MINION\tTOTAL\tSUCCEEDED\tFAILED\tCHANGED\tNOOP\tTEST")
 	for _, minion := range result.Returned() {
 		ret, ok := decoded[minion]
@@ -1065,8 +1107,8 @@ func printStateSummary(result *brine.Result) {
 	_ = writer.Flush()
 }
 
-func printJSON(value any, compact bool) error {
-	encoder := json.NewEncoder(os.Stdout)
+func printJSON(stdout io.Writer, value any, compact bool) error {
+	encoder := json.NewEncoder(stdout)
 	if !compact {
 		encoder.SetIndent("", "  ")
 	}
