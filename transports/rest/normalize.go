@@ -153,8 +153,7 @@ func missingMinions(expected []string, returned map[string]brine.MinionResult) [
 // heuristics, making full_return the recommended approach for safety-critical
 // modules such as service.status.
 func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) brine.MinionResult {
-	full := fullMinionReturn{}
-	if err := json.Unmarshal(raw, &full); err == nil && (len(full.Return) > 0 || full.JID != "" || full.RetCode != 0 || full.Error != "") {
+	if full, ok := decodeFullMinionReturn(raw); ok {
 		ret := brine.MinionResult{
 			Minion:  minion,
 			JID:     full.JID,
@@ -184,6 +183,24 @@ func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) bri
 	}
 
 	return ret
+}
+
+func decodeFullMinionReturn(raw json.RawMessage) (fullMinionReturn, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return fullMinionReturn{}, false
+	}
+
+	if _, ok := fields["ret"]; !ok {
+		return fullMinionReturn{}, false
+	}
+
+	var full fullMinionReturn
+	if err := json.Unmarshal(raw, &full); err != nil {
+		return fullMinionReturn{}, false
+	}
+
+	return full, true
 }
 
 func fullReturnFailure(full fullMinionReturn, raw json.RawMessage) *brine.Failure {

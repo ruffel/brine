@@ -103,6 +103,59 @@ func TestRunFullReturnSuccessFalseFails(t *testing.T) {
 	assert.Equal(t, brine.FailureUnknown, result.ByMinion["minion-1"].Failure.Kind)
 }
 
+func TestNormalizeMinionFullReturnDetection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		req             brine.Request
+		raw             string
+		wantJID         string
+		wantRetCode     int
+		wantFailureKind brine.FailureKind
+		wantFailure     bool
+		wantReturn      string
+	}{
+		{
+			name:        "full return envelope requires ret field",
+			req:         brine.Local("test.echo", brine.List("minion-1")),
+			raw:         `{"jid":"domain-job","retcode":17,"error":"domain payload"}`,
+			wantReturn:  `{"jid":"domain-job","retcode":17,"error":"domain payload"}`,
+			wantRetCode: 0,
+		},
+		{
+			name:            "full return envelope with null ret is recognized",
+			req:             brine.Local("test.echo", brine.List("minion-1"), brine.FullReturn(true)),
+			raw:             `{"jid":"jid-1","ret":null,"retcode":1,"error":"boom"}`,
+			wantJID:         "jid-1",
+			wantRetCode:     1,
+			wantFailure:     true,
+			wantFailureKind: brine.FailureMinionException,
+			wantReturn:      `null`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ret := normalizeMinion(&tt.req, "minion-1", json.RawMessage(tt.raw))
+
+			assert.Equal(t, tt.wantJID, ret.JID)
+			assert.Equal(t, tt.wantRetCode, ret.RetCode)
+			assert.JSONEq(t, tt.wantReturn, string(ret.Return))
+			if !tt.wantFailure {
+				assert.Nil(t, ret.Failure)
+
+				return
+			}
+
+			require.NotNil(t, ret.Failure)
+			assert.Equal(t, tt.wantFailureKind, ret.Failure.Kind)
+		})
+	}
+}
+
 func TestRunMalformedStateReturn(t *testing.T) {
 	t.Parallel()
 
