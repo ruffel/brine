@@ -26,19 +26,6 @@ type Result[T any] struct {
 	MissingMinions []string
 	// Raw preserves the underlying normalized Brine result.
 	Raw *brine.Result
-
-	// Nodes contains decoded module returns keyed by Salt minion ID.
-	//
-	// Deprecated: use ByMinion.
-	Nodes map[string]T
-	// FailedNodes contains minion IDs that returned failed execution data.
-	//
-	// Deprecated: use FailedMinions.
-	FailedNodes []string
-	// MissingNodes contains expected minion IDs that did not return.
-	//
-	// Deprecated: use MissingMinions.
-	MissingNodes []string
 }
 
 // DecodeError reports that one minion return could not be projected into a
@@ -143,9 +130,6 @@ func fromResult[T any](byMinion map[string]T, result *brine.Result) *Result[T] {
 		FailedMinions:  failedMinions,
 		MissingMinions: missingMinions,
 		Raw:            result,
-		Nodes:          byMinion,
-		FailedNodes:    failedMinions,
-		MissingNodes:   missingMinions,
 	}
 
 	for minion, ret := range result.ByMinion {

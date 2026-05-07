@@ -84,7 +84,7 @@ func DecodeMinion(result brine.MinionResult) (Return, error) {
 		return nil, fmt.Errorf("%w: empty return", ErrInvalidStateReturn)
 	}
 
-	if IsMalformed(result.Return) {
+	if IsMalformedStateReturn(result.Return) {
 		return nil, fmt.Errorf("%w: malformed scalar state return", ErrInvalidStateReturn)
 	}
 
@@ -196,13 +196,6 @@ func IsStateRequest(req brine.Request) bool {
 // IsMalformedStateReturn reports whether raw has a known malformed state-return shape.
 func IsMalformedStateReturn(raw json.RawMessage) bool {
 	return transportkit.IsMalformedState(raw)
-}
-
-// IsMalformed reports whether raw has a known malformed state-return shape.
-//
-// Deprecated: use IsMalformedStateReturn.
-func IsMalformed(raw json.RawMessage) bool {
-	return IsMalformedStateReturn(raw)
 }
 
 // MalformedStateRetryPredicate matches failed minion state returns that should

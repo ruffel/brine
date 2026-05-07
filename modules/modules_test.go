@@ -304,9 +304,6 @@ func TestRunLocalReturnsPartialResultWithExecutionError(t *testing.T) {
 	require.ErrorAs(t, err, &executionError)
 	assert.Equal(t, "ok", result.ByMinion["minion-1"])
 	assert.Equal(t, []string{"minion-2"}, result.FailedMinions)
-	assert.Equal(t, result.ByMinion, result.Nodes)
-	assert.Equal(t, result.FailedMinions, result.FailedNodes)
-	assert.Equal(t, result.MissingMinions, result.MissingNodes)
 }
 
 func TestRunLocalReturnsPartialResultWithDecodeError(t *testing.T) {

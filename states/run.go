@@ -20,15 +20,6 @@ type Result struct {
 	MissingMinions []string
 	// Raw preserves the underlying normalized Brine result.
 	Raw *brine.Result
-
-	// FailedNodes contains minion IDs that returned failed execution data.
-	//
-	// Deprecated: use FailedMinions.
-	FailedNodes []string
-	// MissingNodes contains expected minion IDs that did not return.
-	//
-	// Deprecated: use MissingMinions.
-	MissingNodes []string
 }
 
 // RunSLS runs state.sls and decodes state returns by minion. If the state run
@@ -110,8 +101,6 @@ func resultFromDecoded(decoded map[string]Return, raw *brine.Result) *Result {
 		FailedMinions:  failedMinions,
 		MissingMinions: missingMinions,
 		Raw:            raw,
-		FailedNodes:    failedMinions,
-		MissingNodes:   missingMinions,
 	}
 
 	for minion, ret := range decoded {

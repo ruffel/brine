@@ -163,7 +163,6 @@ func TestIsMalformedStateReturn(t *testing.T) {
 			t.Parallel()
 
 			assert.Equal(t, tt.want, IsMalformedStateReturn(tt.raw))
-			assert.Equal(t, tt.want, IsMalformed(tt.raw))
 		})
 	}
 }
@@ -206,8 +205,6 @@ func TestRunSLSPreservesTypedResultWithExecutionError(t *testing.T) {
 	var executionError *brine.ExecutionError
 	require.ErrorAs(t, err, &executionError)
 	assert.Equal(t, []string{"minion-2"}, result.FailedMinions)
-	assert.Equal(t, result.FailedMinions, result.FailedNodes)
-	assert.Equal(t, result.MissingMinions, result.MissingNodes)
 	assert.Equal(t, 1, result.Summaries["minion-1"].Succeeded)
 	assert.Equal(t, 1, result.Summaries["minion-2"].Failed)
 }

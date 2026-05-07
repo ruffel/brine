@@ -94,11 +94,6 @@ func New(transport Transport, opts ...ClientOption) (*Client, error) {
 // avoid recursively invoking the same middleware chain.
 func (c *Client) BaseHandler() Handler { return c.transport }
 
-// Unwrap returns the bare transport handler below client middleware.
-//
-// Deprecated: use BaseHandler.
-func (c *Client) Unwrap() Handler { return c.BaseHandler() }
-
 // Run validates and executes req through the configured Handler chain.
 //
 // Run installs client-wide and per-call observers as a run-scoped event emitter,

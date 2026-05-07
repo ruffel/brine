@@ -16,7 +16,6 @@ func TestBaseHandlerReturnsTransport(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, Handler(transport), client.BaseHandler())
-	assert.Equal(t, client.BaseHandler(), client.Unwrap())
 }
 
 func TestRunRecoversPanicAsTransportError(t *testing.T) {
