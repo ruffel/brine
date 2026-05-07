@@ -197,11 +197,67 @@ func TestPAMAuthRefreshesNearExpiryTokens(t *testing.T) {
 	t.Parallel()
 
 	auth := PAMAuth("saltapi", "saltapi")
-	auth.cacheToken("stale", time.Now().Add(30*time.Second))
-	_, ok := auth.cachedToken()
-	assert.False(t, ok)
 
+	// Simulate a token originally issued with a 2-minute TTL that now has
+	// only 30 seconds remaining.  The effective skew = min(1 minute, 1 minute)
+	// = 1 minute, and 30 seconds remaining < 1 minute skew → stale.
+	auth.mu.Lock()
+	auth.token = "stale"
+	auth.expire = time.Now().Add(30 * time.Second)
+	auth.tokenTTL = 2 * time.Minute
+	auth.mu.Unlock()
+
+	_, ok := auth.cachedToken()
+	assert.False(t, ok, "token past its skew window must not be returned")
+
+	// A fresh long-lived token well within its skew window must be returned.
 	auth.cacheToken("fresh", time.Now().Add(2*time.Minute))
+	token, ok := auth.cachedToken()
+	assert.True(t, ok)
+	assert.Equal(t, "fresh", token)
+}
+
+func TestPAMAuthSkewClampedToHalfLifetimeForShortLivedTokens(t *testing.T) {
+	t.Parallel()
+
+	auth := PAMAuth("saltapi", "saltapi")
+
+	// Short-lived token: TTL = 30 seconds.  The default 1-minute skew
+	// exceeds TTL/2 (15 s), so it is clamped to 15 s.  A token with
+	// 20 s remaining (> 15 s skew) must therefore still be returned.
+	auth.mu.Lock()
+	auth.token = "short-lived"
+	auth.expire = time.Now().Add(20 * time.Second)
+	auth.tokenTTL = 30 * time.Second
+	auth.mu.Unlock()
+
+	token, ok := auth.cachedToken()
+	assert.True(t, ok, "token with remaining time > clamped skew should still be valid")
+	assert.Equal(t, "short-lived", token)
+}
+
+func TestPAMAuthCustomSkew(t *testing.T) {
+	t.Parallel()
+
+	auth := &EAuth{
+		Username:        "saltapi",
+		Password:        "saltapi",
+		EAuth:           "pam",
+		TokenExpirySkew: 5 * time.Minute,
+	}
+
+	// Token with 3 minutes remaining is within the 5-minute custom skew → stale.
+	auth.mu.Lock()
+	auth.token = "near-expiry"
+	auth.expire = time.Now().Add(3 * time.Minute)
+	auth.tokenTTL = 12 * time.Hour // large TTL; skew not clamped
+	auth.mu.Unlock()
+
+	_, ok := auth.cachedToken()
+	assert.False(t, ok, "token within custom skew window must not be returned")
+
+	// Token with 6 minutes remaining is outside the 5-minute custom skew → fresh.
+	auth.cacheToken("fresh", time.Now().Add(6*time.Minute))
 	token, ok := auth.cachedToken()
 	assert.True(t, ok)
 	assert.Equal(t, "fresh", token)

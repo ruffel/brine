@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	eauthLoginKey        = "login"
-	nanosecondsPerSecond = 1_000_000_000
+	eauthLoginKey          = "login"
+	nanosecondsPerSecond   = 1_000_000_000
+	defaultTokenExpirySkew = time.Minute
 )
 
 // NoAuth disables REST authentication. It is intended for trusted localhost
@@ -42,15 +43,24 @@ func (t StaticToken) Token(context.Context, *http.Client, string) (string, error
 }
 
 // EAuth authenticates via Salt's /login endpoint and caches the returned token.
+//
+// TokenExpirySkew controls how far in advance of the token's expiry a new
+// login is triggered.  A positive skew prevents using a token that would
+// expire before the next Salt request completes.  When zero the default of
+// one minute is used.  The effective skew is clamped to at most half the
+// token's total lifetime so short-lived tokens (e.g. token_expire: 60) are
+// not pre-emptively invalidated immediately after being issued.
 type EAuth struct {
-	Username string
-	Password string
-	EAuth    string
+	Username        string
+	Password        string
+	EAuth           string
+	TokenExpirySkew time.Duration
 
-	mu     sync.Mutex
-	group  singleflight.Group
-	token  string
-	expire time.Time
+	mu       sync.Mutex
+	group    singleflight.Group
+	token    string
+	expire   time.Time
+	tokenTTL time.Duration // total lifetime of the cached token
 }
 
 // PAMAuth constructs a PAM eauth authenticator.
@@ -108,11 +118,32 @@ func (a *EAuth) cachedToken() (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if a.token == "" || !time.Now().Before(a.expire.Add(-time.Minute)) {
+	if a.token == "" {
+		return "", false
+	}
+
+	skew := a.effectiveSkew()
+	if !time.Now().Before(a.expire.Add(-skew)) {
 		return "", false
 	}
 
 	return a.token, true
+}
+
+// effectiveSkew returns the configured skew clamped to at most half the
+// cached token's lifetime so short-lived tokens are not invalidated
+// prematurely.  Must be called with a.mu held.
+func (a *EAuth) effectiveSkew() time.Duration {
+	skew := a.TokenExpirySkew
+	if skew <= 0 {
+		skew = defaultTokenExpirySkew
+	}
+
+	if a.tokenTTL > 0 && skew > a.tokenTTL/2 {
+		skew = a.tokenTTL / 2
+	}
+
+	return skew
 }
 
 func (a *EAuth) cacheToken(token string, expire time.Time) {
@@ -121,6 +152,7 @@ func (a *EAuth) cacheToken(token string, expire time.Time) {
 
 	a.token = token
 	a.expire = expire
+	a.tokenTTL = time.Until(expire)
 }
 
 type loginRequest struct {
