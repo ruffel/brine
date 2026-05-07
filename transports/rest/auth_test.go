@@ -196,14 +196,14 @@ func TestPAMAuthReportsLoginAuthErrors(t *testing.T) {
 func TestPAMAuthRefreshesNearExpiryTokens(t *testing.T) {
 	t.Parallel()
 
-	auth := PAMAuth("saltapi", "saltapi")
+	auth, fakeNow := newTestPAMAuth(time.Unix(1_700_000_000, 0))
 
 	// Simulate a token originally issued with a 2-minute TTL that now has
-	// only 30 seconds remaining.  The effective skew = min(1 minute, 1 minute)
+	// only 30 seconds remaining. The effective skew = min(1 minute, 1 minute)
 	// = 1 minute, and 30 seconds remaining < 1 minute skew → stale.
 	auth.mu.Lock()
 	auth.token = "stale"
-	auth.expire = time.Now().Add(30 * time.Second)
+	auth.expire = fakeNow.Add(30 * time.Second)
 	auth.tokenTTL = 2 * time.Minute
 	auth.mu.Unlock()
 
@@ -211,7 +211,7 @@ func TestPAMAuthRefreshesNearExpiryTokens(t *testing.T) {
 	assert.False(t, ok, "token past its skew window must not be returned")
 
 	// A fresh long-lived token well within its skew window must be returned.
-	auth.cacheToken("fresh", time.Now().Add(2*time.Minute))
+	auth.cacheToken("fresh", fakeNow.Add(2*time.Minute).Round(0))
 	token, ok := auth.cachedToken()
 	assert.True(t, ok)
 	assert.Equal(t, "fresh", token)
@@ -220,14 +220,14 @@ func TestPAMAuthRefreshesNearExpiryTokens(t *testing.T) {
 func TestPAMAuthSkewClampedToHalfLifetimeForShortLivedTokens(t *testing.T) {
 	t.Parallel()
 
-	auth := PAMAuth("saltapi", "saltapi")
+	auth, fakeNow := newTestPAMAuth(time.Unix(1_700_000_000, 0))
 
-	// Short-lived token: TTL = 30 seconds.  The default 1-minute skew
-	// exceeds TTL/2 (15 s), so it is clamped to 15 s.  A token with
-	// 20 s remaining (> 15 s skew) must therefore still be returned.
+	// Short-lived token: TTL = 30 seconds. The default 1-minute skew exceeds
+	// TTL/2 (15 s), so it is clamped to 15 s. A token with 20 s remaining
+	// (> 15 s skew) must therefore still be returned.
 	auth.mu.Lock()
 	auth.token = "short-lived"
-	auth.expire = time.Now().Add(20 * time.Second)
+	auth.expire = fakeNow.Add(20 * time.Second)
 	auth.tokenTTL = 30 * time.Second
 	auth.mu.Unlock()
 
@@ -239,17 +239,21 @@ func TestPAMAuthSkewClampedToHalfLifetimeForShortLivedTokens(t *testing.T) {
 func TestPAMAuthCustomSkew(t *testing.T) {
 	t.Parallel()
 
+	fakeNow := time.Unix(1_700_000_000, 0)
 	auth := &EAuth{
 		Username:        "saltapi",
 		Password:        "saltapi",
 		EAuth:           "pam",
 		TokenExpirySkew: 5 * time.Minute,
+		now: func() time.Time {
+			return fakeNow
+		},
 	}
 
 	// Token with 3 minutes remaining is within the 5-minute custom skew → stale.
 	auth.mu.Lock()
 	auth.token = "near-expiry"
-	auth.expire = time.Now().Add(3 * time.Minute)
+	auth.expire = fakeNow.Add(3 * time.Minute)
 	auth.tokenTTL = 12 * time.Hour // large TTL; skew not clamped
 	auth.mu.Unlock()
 
@@ -257,10 +261,36 @@ func TestPAMAuthCustomSkew(t *testing.T) {
 	assert.False(t, ok, "token within custom skew window must not be returned")
 
 	// Token with 6 minutes remaining is outside the 5-minute custom skew → fresh.
-	auth.cacheToken("fresh", time.Now().Add(6*time.Minute))
+	auth.cacheToken("fresh", fakeNow.Add(6*time.Minute).Round(0))
 	token, ok := auth.cachedToken()
 	assert.True(t, ok)
 	assert.Equal(t, "fresh", token)
+}
+
+func TestPAMAuthCachesTokenAgainstInjectedClock(t *testing.T) {
+	t.Parallel()
+
+	auth, fakeNow := newTestPAMAuth(time.Unix(1_700_000_000, 0))
+	auth.cacheToken("abc", fakeNow.Add(2*time.Minute).Round(0))
+
+	*fakeNow = fakeNow.Add(30 * time.Second)
+	token, ok := auth.cachedToken()
+	require.True(t, ok)
+	assert.Equal(t, "abc", token)
+
+	*fakeNow = fakeNow.Add(31 * time.Second)
+	_, ok = auth.cachedToken()
+	assert.False(t, ok, "token inside the skew window must be refreshed")
+}
+
+func TestPAMAuthRejectsExpiredCachedToken(t *testing.T) {
+	t.Parallel()
+
+	auth, fakeNow := newTestPAMAuth(time.Unix(1_700_000_000, 0))
+	auth.cacheToken("expired", fakeNow.Add(-time.Second).Round(0))
+
+	_, ok := auth.cachedToken()
+	assert.False(t, ok, "expired token must not be returned from cache")
 }
 
 func TestPAMAuthRetriesOnceAfterUnauthorized(t *testing.T) {
@@ -317,4 +347,14 @@ func TestUnauthorized(t *testing.T) {
 
 	_, err = transport.Run(context.Background(), brine.Local("test.ping", brine.Glob("*")))
 	require.ErrorIs(t, err, brine.ErrAuth)
+}
+
+func newTestPAMAuth(now time.Time) (*EAuth, *time.Time) {
+	fakeNow := now
+	auth := PAMAuth("saltapi", "saltapi")
+	auth.now = func() time.Time {
+		return fakeNow
+	}
+
+	return auth, &fakeNow
 }

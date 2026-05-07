@@ -61,6 +61,7 @@ type EAuth struct {
 	token    string
 	expire   time.Time
 	tokenTTL time.Duration // total lifetime of the cached token
+	now      func() time.Time
 }
 
 // PAMAuth constructs a PAM eauth authenticator.
@@ -122,8 +123,9 @@ func (a *EAuth) cachedToken() (string, bool) {
 		return "", false
 	}
 
+	now := a.nowTime()
 	skew := a.effectiveSkew()
-	if !time.Now().Before(a.expire.Add(-skew)) {
+	if !now.Before(a.expire.Add(-skew)) {
 		return "", false
 	}
 
@@ -150,9 +152,20 @@ func (a *EAuth) cacheToken(token string, expire time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	now := a.nowTime()
+	ttl := expire.Sub(now)
+
 	a.token = token
-	a.expire = expire
-	a.tokenTTL = time.Until(expire)
+	a.expire = now.Add(ttl)
+	a.tokenTTL = ttl
+}
+
+func (a *EAuth) nowTime() time.Time {
+	if a != nil && a.now != nil {
+		return a.now()
+	}
+
+	return time.Now()
 }
 
 type loginRequest struct {
