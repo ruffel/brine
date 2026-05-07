@@ -102,7 +102,8 @@ func (c *Client) Unwrap() Handler { return c.BaseHandler() }
 // Run validates and executes req through the configured Handler chain.
 //
 // Run installs client-wide and per-call observers as a run-scoped event emitter,
-// emits request lifecycle events, recovers panics from middleware or transports,
+// emits request lifecycle events, recovers panics from middleware or transports
+// as a *TransportError (matchable with errors.Is(err, brine.ErrTransport)),
 // and converts non-OK Salt results into ExecutionError values.
 func (c *Client) Run(ctx context.Context, req Request, opts ...RunOption) (*Result, error) {
 	if err := req.Validate(); err != nil {
@@ -197,7 +198,11 @@ type runOutcome struct {
 func recoverRun(outcome *runOutcome, run func(), onPanic func(error)) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			outcome.err = fmt.Errorf("brine: panic during Run: %v\n%s", recovered, debug.Stack())
+			// Wrap the panic as a TransportError so callers can match it with
+			// errors.Is(err, brine.ErrTransport) or a type assertion.  The
+			// stack trace is included in the cause message for diagnostics.
+			cause := fmt.Errorf("panic during Run: %v\n%s", recovered, debug.Stack())
+			outcome.err = NewTransportError("panic", cause)
 			onPanic(outcome.err)
 		}
 	}()

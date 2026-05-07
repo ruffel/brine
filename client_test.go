@@ -19,6 +19,29 @@ func TestBaseHandlerReturnsTransport(t *testing.T) {
 	assert.Equal(t, client.BaseHandler(), client.Unwrap())
 }
 
+func TestRunRecoversPanicAsTransportError(t *testing.T) {
+	t.Parallel()
+
+	panicMW := func(next Handler) Handler {
+		return HandlerFunc(func(ctx context.Context, req Request) (*Result, error) {
+			panic("middleware exploded")
+		})
+	}
+
+	transport := &baseHandlerTransport{}
+	client, err := New(transport, WithMiddleware(panicMW))
+	require.NoError(t, err)
+
+	_, runErr := client.Run(context.Background(), Local("test.ping", Glob("*")))
+	require.Error(t, runErr)
+	assert.ErrorIs(t, runErr, ErrTransport, "panic should be wrapped as ErrTransport")
+
+	var transportErr *TransportError
+	require.ErrorAs(t, runErr, &transportErr)
+	assert.Equal(t, "panic", transportErr.Op)
+	assert.Contains(t, transportErr.Error(), "middleware exploded")
+}
+
 type baseHandlerTransport struct {
 	UnsupportedTransport
 }
