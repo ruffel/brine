@@ -137,6 +137,8 @@ func (exampleTransport) Run(_ context.Context, req brine.Request) (*brine.Result
 		body = json.RawMessage(`"minion-1"`)
 	case "network.interfaces":
 		body = json.RawMessage(`{"eth0":{"hwaddr":"aa:bb","up":true,"inet":[{"address":"10.0.0.1"}]}}`)
+	case "pkg.version":
+		body = json.RawMessage(`"1.2.3"`)
 	case "test.version":
 		body = json.RawMessage(`"3006.9"`)
 	}

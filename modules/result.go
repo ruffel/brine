@@ -1,8 +1,3 @@
-// Package modules provides small typed helpers for common Salt execution modules.
-//
-// The helpers are intentionally thin wrappers around brine.Client and generic
-// local execution. They do not encode product-specific policy, logging, progress
-// rendering, or target construction.
 package modules
 
 import (
