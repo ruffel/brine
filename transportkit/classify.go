@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ruffel/brine"
 )
@@ -20,13 +21,11 @@ import (
 // absent) must NOT be listed here.
 //
 // This table is intentionally not exhaustive: Salt's module surface is too
-// large and too version-dependent for any library to own authoritatively.  The
+// large and too version-dependent for any library to own authoritatively. The
 // table covers only the clear-cut cases where false always means failure.
-// Callers may extend or replace this map before any request is dispatched:
 //
-//	if _, ok := transportkit.BareFalseModules["mymodule.create"]; !ok {
-//	    transportkit.BareFalseModules["mymodule.create"] = struct{}{}
-//	}
+// Prefer `RegisterBareFalseModule` and `UnregisterBareFalseModule` for runtime
+// changes so lookups and mutations stay synchronized.
 //
 // Modules that return full-return envelopes with retcode and success fields do
 // not rely on this table; transport layers classify those returns via retcode
@@ -51,17 +50,56 @@ var BareFalseModules = map[string]struct{}{ //nolint:gochecknoglobals // Package
 	// classification is better handled via full-return retcodes.
 }
 
+var bareFalseModulesMu sync.RWMutex //nolint:gochecknoglobals // Guards runtime registry updates.
+
+// RegisterBareFalseModule marks function as one where a bare JSON false return
+// represents execution failure.
+func RegisterBareFalseModule(function string) {
+	if function == "" {
+		return
+	}
+
+	bareFalseModulesMu.Lock()
+	defer bareFalseModulesMu.Unlock()
+
+	BareFalseModules[function] = struct{}{}
+}
+
+// UnregisterBareFalseModule removes function from the bare-false failure registry.
+func UnregisterBareFalseModule(function string) {
+	if function == "" {
+		return
+	}
+
+	bareFalseModulesMu.Lock()
+	defer bareFalseModulesMu.Unlock()
+
+	delete(BareFalseModules, function)
+}
+
+// BareFalseModuleRegistered reports whether function is registered as a bare-
+// false execution failure.
+func BareFalseModuleRegistered(function string) bool {
+	bareFalseModulesMu.RLock()
+	defer bareFalseModulesMu.RUnlock()
+
+	_, known := BareFalseModules[function]
+
+	return known
+}
+
 // BareFalseFailure returns a failure for Salt functions where a bare false
 // value is known to represent failed execution rather than domain data.
 //
-// BareFalseFailure consults BareFalseModules; callers may add entries to that
-// map to extend coverage for custom Salt modules.
+// BareFalseFailure consults `BareFalseModules`. Callers that need to change
+// the registry at runtime should prefer `RegisterBareFalseModule` and
+// `UnregisterBareFalseModule` over direct map writes.
 func BareFalseFailure(function string, raw json.RawMessage) *brine.Failure {
 	if !IsBareFalse(raw) {
 		return nil
 	}
 
-	if _, known := BareFalseModules[function]; !known {
+	if !BareFalseModuleRegistered(function) {
 		return nil
 	}
 
