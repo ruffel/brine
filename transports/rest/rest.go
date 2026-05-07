@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ruffel/brine"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -81,8 +82,8 @@ type Transport struct {
 	localRunMode    LocalRunMode
 	caps            brine.Capabilities
 
-	infoOnce   sync.Once
-	cachedInfo brine.TransportInfo
+	infoGroup  singleflight.Group
+	cachedInfo atomic.Pointer[brine.TransportInfo]
 }
 
 // New constructs a rest_cherrypy transport.
@@ -141,16 +142,27 @@ func (t *Transport) Capabilities() brine.Capabilities {
 }
 
 // Info implements brine.Transport.
+//
+// The first successful version probe is cached permanently.  If the probe
+// fails (e.g. due to a canceled context or insufficient eauth permissions)
+// the method returns base transport information without a SaltVersion and
+// retries the probe on the next call.  Concurrent callers coalesce onto a
+// single probe via a singleflight group to avoid thundering-herd login loops.
 func (t *Transport) Info(ctx context.Context) (brine.TransportInfo, error) {
-	t.infoOnce.Do(func() {
+	if p := t.cachedInfo.Load(); p != nil {
+		return *p, nil
+	}
+
+	v, _, _ := t.infoGroup.Do("info", func() (any, error) {
+		if p := t.cachedInfo.Load(); p != nil {
+			return *p, nil
+		}
+
 		info := brine.TransportInfo{
 			Name:         transportName,
 			Capabilities: t.caps,
 		}
 
-		// Apply a bounded timeout to the version probe so a slow or
-		// unresponsive Salt API cannot block all subsequent Info callers
-		// indefinitely behind the sync.Once.
 		probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
@@ -158,10 +170,17 @@ func (t *Transport) Info(ctx context.Context) (brine.TransportInfo, error) {
 			info.SaltVersion = saltVersion
 		}
 
-		t.cachedInfo = info
+		// Only promote to the permanent cache when we obtained a version.
+		// A failure (canceled context, 403, network error) must not prevent
+		// future probes from succeeding once the API is reachable.
+		if info.SaltVersion != "" {
+			t.cachedInfo.Store(&info)
+		}
+
+		return info, nil
 	})
 
-	return t.cachedInfo, nil
+	return v.(brine.TransportInfo), nil //nolint:forcetypeassert // singleflight always returns brine.TransportInfo.
 }
 
 // Run implements brine.Handler.
@@ -365,18 +384,94 @@ func (t *Transport) invalidateAuthToken() bool {
 	return true
 }
 
+// detectSaltVersion probes Salt for its version string.
+//
+// The probe sequence is:
+//  1. Unauthenticated GET / — reads the "X-SaltStack-Version" response header
+//     common to rest_cherrypy deployments without requiring any eauth role.
+//  2. runner.manage.versions — more commonly granted than test.get_opts.
+//  3. runner.test.get_opts — legacy fallback kept for older Salt releases.
+//
+// All probe steps are best-effort; a failure returns ("", false) so the
+// caller can decide whether a missing version is acceptable.
 func (t *Transport) detectSaltVersion(ctx context.Context) (string, bool) {
-	body, err := t.post(ctx, []map[string]any{{
-		"client": "runner",
-		"fun":    "test.get_opts",
-	}})
+	// Attempt 1: unauthenticated welcome endpoint header.
+	if version, ok := t.detectVersionFromWelcome(ctx); ok {
+		return version, true
+	}
+
+	// Attempt 2: runner.manage.versions (more commonly permitted than test.get_opts).
+	if version, ok := t.detectVersionFromManageVersions(ctx); ok {
+		return version, true
+	}
+
+	// Attempt 3: runner.test.get_opts (legacy fallback).
+	body, err := t.post(ctx, []map[string]any{{"client": "runner", "fun": "test.get_opts"}})
 	if err != nil {
 		return "", false
 	}
 
-	saltVersion, ok := saltVersionFromGetOpts(body)
+	return saltVersionFromGetOpts(body)
+}
 
-	return saltVersion, ok
+// detectVersionFromWelcome issues an unauthenticated GET / and reads the
+// X-SaltStack-Version response header.  This does not require any eauth role.
+func (t *Transport) detectVersionFromWelcome(ctx context.Context) (string, bool) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, t.baseURL+"/", nil)
+	if err != nil {
+		return "", false
+	}
+
+	request.Header.Set("Accept", contentTypeJSON)
+
+	response, err := t.client.Do(request)
+	if err != nil {
+		return "", false
+	}
+	defer func() { _ = response.Body.Close() }()
+	_, _ = io.Copy(io.Discard, response.Body)
+
+	if version := response.Header.Get("X-Saltstack-Version"); version != "" {
+		return version, true
+	}
+
+	return "", false
+}
+
+// detectVersionFromManageVersions calls runner.manage.versions and parses the
+// Master version from the returned map.  This requires the caller's eauth role
+// to allow the manage.versions runner, which is granted more broadly than
+// test.get_opts in typical Salt hardened deployments.
+func (t *Transport) detectVersionFromManageVersions(ctx context.Context) (string, bool) {
+	body, err := t.post(ctx, []map[string]any{{"client": "runner", "fun": "manage.versions"}})
+	if err != nil {
+		return "", false
+	}
+
+	return saltVersionFromManageVersions(body)
+}
+
+func saltVersionFromManageVersions(body []byte) (string, bool) {
+	envelope := responseEnvelope{}
+	if err := json.Unmarshal(body, &envelope); err != nil || len(envelope.Return) == 0 {
+		return "", false
+	}
+
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(envelope.Return[0], &result); err != nil {
+		return "", false
+	}
+
+	for _, key := range []string{"Master", "master"} {
+		if raw, ok := result[key]; ok && len(raw) > 0 {
+			var version string
+			if err := json.Unmarshal(raw, &version); err == nil && version != "" {
+				return version, true
+			}
+		}
+	}
+
+	return "", false
 }
 
 func saltVersionFromGetOpts(body []byte) (string, bool) {
