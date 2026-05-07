@@ -8,6 +8,29 @@ import (
 )
 
 // Result is the normalized outcome of Salt work.
+//
+// JID is the Salt job ID; it may be empty for synchronous local runs that do
+// not go through the async job system.
+//
+// Expected contains the minion IDs Salt was asked to reach. It is populated
+// when the expected set is known: list targets (always), async local runs
+// (from the minions list in the local_async start response), and job lookups
+// (from the prior start). It is nil/empty for glob or compound targets that
+// went through the synchronous local client.
+//
+// ByMinion holds per-minion returns keyed by minion ID. Failures reports the
+// subset that did not succeed; callers should treat this map as read-only
+// after the Result is returned.
+//
+// Missing contains expected minion IDs that did not appear in ByMinion. A
+// non-empty Missing slice always produces a non-OK result.
+//
+// Scalar holds the raw return body for runner and wheel requests.
+//
+// Failure describes a result-level failure (e.g. the target matched no
+// minions, or a runner returned an error envelope).
+//
+// Raw preserves the original transport payload for diagnostics.
 type Result struct {
 	JID      string
 	Request  *Request
@@ -20,6 +43,19 @@ type Result struct {
 }
 
 // MinionResult is a normalized per-minion Salt return.
+//
+// RetCode is the Salt retcode; zero means success. When a transport receives
+// a full-return envelope the retcode comes from the envelope; for bare module
+// returns it is synthesised from the failure classification.
+//
+// Return holds the module return body as raw JSON. It may be any valid JSON
+// value: a boolean, a string, a number, an array, or an object.
+//
+// Failure is non-nil when the transport classified the return as a failure.
+// RetCode may be non-zero even when Failure is nil if the transport was unable
+// to classify the failure type.
+//
+// Raw preserves the original per-minion transport payload for diagnostics.
 type MinionResult struct {
 	Minion  string
 	JID     string
@@ -30,6 +66,9 @@ type MinionResult struct {
 }
 
 // Failure describes Salt execution failure data.
+//
+// Raw preserves the raw transport payload that produced the failure so
+// callers can inspect the original Salt return for diagnostics.
 type Failure struct {
 	Kind    FailureKind
 	Message string
@@ -37,14 +76,26 @@ type Failure struct {
 }
 
 // FailureKind identifies broad categories of Salt execution failures.
+//
+// Only the BareFalseFailure and state-return classifiers in transportkit
+// emit FailureUnknown; prefer FailureRetCode for explicit retcode failures.
 type FailureKind string
 
 const (
-	FailureRetCode         FailureKind = "retcode"
-	FailureMalformed       FailureKind = "malformed"
-	FailureNoReturn        FailureKind = "no_return"
+	// FailureRetCode indicates the Salt retcode was non-zero.
+	FailureRetCode FailureKind = "retcode"
+	// FailureMalformed indicates Salt returned an unexpected shape, such as a
+	// render-error string instead of a state return map.
+	FailureMalformed FailureKind = "malformed"
+	// FailureNoReturn indicates an expected minion did not return within the
+	// configured timeout.
+	FailureNoReturn FailureKind = "no_return"
+	// FailureMinionException indicates Salt reported a minion-side exception in
+	// a full-return envelope's error field.
 	FailureMinionException FailureKind = "minion_exception"
-	FailureUnknown         FailureKind = "unknown"
+	// FailureUnknown indicates a failure whose specific kind cannot be
+	// determined from the available return data.
+	FailureUnknown FailureKind = "unknown"
 )
 
 // OK reports whether result succeeded.
@@ -85,6 +136,12 @@ func (r *Result) Returned() []string {
 }
 
 // Failures returns minion returns that failed plus missing-minion placeholders.
+//
+// A MinionResult is included when its Failure field is non-nil or its RetCode
+// is non-zero. For results with a non-zero RetCode but a nil Failure the
+// returned copy has a synthesised FailureRetCode Failure; the original value
+// in ByMinion is not modified, making Failures safe to call concurrently with
+// other readers of the same Result.
 func (r *Result) Failures() []MinionResult {
 	if r == nil {
 		return nil
@@ -94,12 +151,13 @@ func (r *Result) Failures() []MinionResult {
 
 	for _, minion := range sortedMinionKeys(r.ByMinion) {
 		ret := r.ByMinion[minion]
-		if ret.Failure != nil || ret.RetCode != 0 {
-			if ret.Failure == nil {
-				ret.Failure = &Failure{Kind: FailureRetCode, Message: fmt.Sprintf("retcode %d", ret.RetCode)}
-				r.ByMinion[minion] = ret
-			}
+		if ret.Failure == nil && ret.RetCode != 0 {
+			// Synthesise a Failure into the local copy only; do not write back
+			// to the shared ByMinion map so concurrent readers are not racing.
+			ret.Failure = &Failure{Kind: FailureRetCode, Message: fmt.Sprintf("retcode %d", ret.RetCode)}
+		}
 
+		if ret.Failure != nil {
 			failures = append(failures, ret)
 		}
 	}
