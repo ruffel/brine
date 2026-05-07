@@ -119,7 +119,8 @@ func (j *localJob) Wait(ctx context.Context) (*brine.Result, error) {
 	j.waiting = call
 	j.mu.Unlock()
 
-	call.result, call.err, call.terminal = j.wait(ctx)
+	out := j.wait(ctx)
+	call.result, call.err, call.terminal = out.result, out.err, out.terminal
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -161,9 +162,18 @@ func (j *localJob) Events(ctx context.Context) (brine.EventStream, error) {
 	return j.transport.Subscribe(ctx, brine.EventFilter{JID: j.jid})
 }
 
-func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
-	if result, err, ok := j.noMinionsResult(); ok {
-		return result, err, true
+// waitOutcome carries the result of a single localJob.wait poll cycle.
+// Using a named struct instead of a three-element tuple makes the terminal
+// flag self-documenting at every return site.
+type waitOutcome struct {
+	result   *brine.Result
+	err      error
+	terminal bool
+}
+
+func (j *localJob) wait(ctx context.Context) waitOutcome {
+	if out, ok := j.noMinionsResult(); ok {
+		return out
 	}
 
 	waitCtx, cancelWait := j.waitContext(ctx)
@@ -190,28 +200,32 @@ func (j *localJob) wait(ctx context.Context) (*brine.Result, error, bool) {
 				partial = &brine.Result{JID: j.jid, Request: &req}
 			}
 
-			return partial, err, false
+			return waitOutcome{result: partial, err: err}
 		}
 
 		accumulator.MergeResult(waitCtx, result)
 		current := accumulator.Result()
 		if jobLookupComplete(current, j.expectedKnown, j.expected) {
-			result, err := resultWithExecutionError(current)
+			res, resErr := resultWithExecutionError(current)
 
-			return result, err, true
+			return waitOutcome{result: res, err: resErr, terminal: true}
 		}
 
 		if err := waitJobLookupPollOrEvent(waitCtx, j.transport.jobPollInterval, events, accumulator); err != nil {
 			current = accumulator.Result()
 
-			return current, brine.NewExecutionError(current, err), j.isConfiguredWaitTimeout(err)
+			return waitOutcome{
+				result:   current,
+				err:      brine.NewExecutionError(current, err),
+				terminal: j.isConfiguredWaitTimeout(err),
+			}
 		}
 	}
 }
 
-func (j *localJob) noMinionsResult() (*brine.Result, error, bool) {
+func (j *localJob) noMinionsResult() (waitOutcome, bool) {
 	if !j.expectedKnown || len(j.expected) != 0 {
-		return &brine.Result{}, nil, false
+		return waitOutcome{}, false
 	}
 
 	req := j.req
@@ -226,7 +240,7 @@ func (j *localJob) noMinionsResult() (*brine.Result, error, bool) {
 		},
 	}
 
-	return result, brine.NewExecutionError(result, nil), true
+	return waitOutcome{result: result, err: brine.NewExecutionError(result, nil), terminal: true}, true
 }
 
 func (j *localJob) waitContext(ctx context.Context) (context.Context, context.CancelFunc) {
