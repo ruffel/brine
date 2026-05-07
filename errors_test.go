@@ -56,6 +56,30 @@ func TestExecutionErrorMessage(t *testing.T) {
 			}, nil),
 			want: "salt execution failed: Salt target matched no minions (jid: )",
 		},
+		{
+			name: "result-level failure appends cause",
+			err: NewExecutionError(&Result{
+				Request: &Request{Kind: KindLocal, Target: Glob("*"), Function: "test.ping"},
+				Failure: &Failure{Kind: FailureNoReturn, Message: "Salt target matched no minions"},
+			}, sentinel),
+			want: "salt execution failed: Salt target matched no minions (jid: ): root cause",
+		},
+		{
+			name: "count message appends cause",
+			err: &ExecutionError{
+				JID:   "20240101000000000002",
+				cause: sentinel,
+				Result: &Result{
+					Request:  &Request{Kind: KindLocal, Target: Glob("*"), Function: "test.ping"},
+					Expected: []string{"minion-1", "minion-2"},
+					ByMinion: map[string]MinionResult{
+						"minion-1": {Minion: "minion-1", RetCode: 1, Failure: &Failure{Kind: FailureRetCode}},
+					},
+					Missing: []string{"minion-2"},
+				},
+			},
+			want: "salt execution failed: 2 of 2 minions failed (jid: 20240101000000000002): root cause",
+		},
 	}
 
 	for _, tt := range tests {

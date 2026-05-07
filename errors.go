@@ -172,25 +172,35 @@ func (e *ExecutionError) Error() string {
 	}
 
 	if e.Result == nil {
-		if e.cause != nil {
-			return fmt.Sprintf("%s: %v", ErrExecution, e.cause)
-		}
-
-		return ErrExecution.Error()
+		return executionErrorMessage(ErrExecution.Error(), e.cause)
 	}
 
 	failed := len(e.Failed())
 
 	expected := len(e.Result.Expected)
 	if expected > 0 {
-		return fmt.Sprintf("salt execution failed: %d of %d minions failed (jid: %s)", failed, expected, e.JID)
+		return executionErrorMessage(
+			fmt.Sprintf("salt execution failed: %d of %d minions failed (jid: %s)", failed, expected, e.JID),
+			e.cause,
+		)
 	}
 
 	if e.Result.Failure != nil {
-		return fmt.Sprintf("salt execution failed: %s (jid: %s)", e.Result.Failure.Message, e.JID)
+		return executionErrorMessage(
+			fmt.Sprintf("salt execution failed: %s (jid: %s)", e.Result.Failure.Message, e.JID),
+			e.cause,
+		)
 	}
 
-	return fmt.Sprintf("%s: %v", ErrExecution, e.cause)
+	return executionErrorMessage(ErrExecution.Error(), e.cause)
+}
+
+func executionErrorMessage(message string, cause error) string {
+	if cause == nil {
+		return message
+	}
+
+	return fmt.Sprintf("%s: %v", message, cause)
 }
 
 func (e *ExecutionError) Unwrap() error { return e.cause }
