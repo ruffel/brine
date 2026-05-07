@@ -104,11 +104,17 @@ func (r *Result) OK() bool {
 		return false
 	}
 
-	if r.IsLocal() {
-		return len(r.Failures()) == 0
+	if !r.IsLocal() {
+		return true
 	}
 
-	return true
+	for _, ret := range r.ByMinion {
+		if ret.Failure != nil || ret.RetCode != 0 {
+			return false
+		}
+	}
+
+	return len(r.Missing) == 0
 }
 
 // IsLocal reports whether r is a local/minion-scoped result.

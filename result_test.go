@@ -66,6 +66,68 @@ func TestResultFailuresConcurrentReadIsSafe(t *testing.T) {
 	wg.Wait()
 }
 
+func TestResultOK(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		want bool
+		res  *Result
+	}{
+		{
+			name: "nil result is not ok",
+			want: false,
+			res:  nil,
+		},
+		{
+			name: "runner result ignores minion maps",
+			want: true,
+			res: &Result{
+				Request: &Request{Kind: KindRunner, Function: "manage.alived"},
+			},
+		},
+		{
+			name: "local retcode failure is not ok",
+			want: false,
+			res: &Result{
+				Request: &Request{Kind: KindLocal, Target: Glob("*"), Function: "test.ping"},
+				ByMinion: map[string]MinionResult{
+					"minion-1": {Minion: "minion-1", RetCode: 1},
+				},
+			},
+		},
+		{
+			name: "local missing minion is not ok",
+			want: false,
+			res: &Result{
+				Request: &Request{Kind: KindLocal, Target: List("minion-1"), Function: "test.ping"},
+				ByMinion: map[string]MinionResult{
+					"minion-1": {Minion: "minion-1", RetCode: 0},
+				},
+				Missing: []string{"minion-2"},
+			},
+		},
+		{
+			name: "successful local result is ok",
+			want: true,
+			res: &Result{
+				Request: &Request{Kind: KindLocal, Target: Glob("*"), Function: "test.ping"},
+				ByMinion: map[string]MinionResult{
+					"minion-1": {Minion: "minion-1", RetCode: 0},
+					"minion-2": {Minion: "minion-2", RetCode: 0},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, tt.res.OK())
+		})
+	}
+}
+
 func TestResultFailures(t *testing.T) {
 	t.Parallel()
 
