@@ -3,6 +3,7 @@ package brine
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 )
 
@@ -117,7 +118,11 @@ func applyOptions(req *Request, opts ...RequestOption) {
 
 // Args appends positional Salt arguments.
 func Args(args ...any) RequestOption {
-	return func(req *Request) { req.Args = append(req.Args, args...) }
+	return func(req *Request) {
+		for _, arg := range args {
+			req.Args = append(req.Args, cloneAny(arg))
+		}
+	}
 }
 
 // Kwargs merges Salt keyword arguments.
@@ -434,6 +439,22 @@ func cloneAny(value any) any {
 	case []string:
 		return append([]string(nil), v...)
 	default:
-		return v
+		return cloneSlice(value)
 	}
+}
+
+func cloneSlice(value any) any {
+	rv := reflect.ValueOf(value)
+	if !rv.IsValid() || rv.Kind() != reflect.Slice {
+		return value
+	}
+
+	if rv.IsNil() {
+		return reflect.Zero(rv.Type()).Interface()
+	}
+
+	cloned := reflect.MakeSlice(rv.Type(), rv.Len(), rv.Len())
+	reflect.Copy(cloned, rv)
+
+	return cloned.Interface()
 }

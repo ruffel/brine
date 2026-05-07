@@ -84,6 +84,27 @@ func TestValidateRejectsNegativeTimeoutOptions(t *testing.T) {
 	}
 }
 
+func TestRequestOptionsCloneTypedSlices(t *testing.T) {
+	t.Parallel()
+
+	ints := []int{1, 2, 3}
+	bytesValue := []byte("pillar")
+
+	req := Local(
+		"test.echo",
+		Glob("*"),
+		Args(ints),
+		Metadata("payload", bytesValue),
+	)
+
+	ints[0] = 99
+	bytesValue[0] = 'P'
+
+	require.Len(t, req.Args, 1)
+	assert.Equal(t, []int{1, 2, 3}, req.Args[0])
+	assert.Equal(t, []byte("pillar"), req.Metadata["payload"])
+}
+
 func TestMetadataOptionsMergeCallerOwnedMetadata(t *testing.T) {
 	t.Parallel()
 
