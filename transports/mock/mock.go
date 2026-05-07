@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"reflect"
 	"sync"
 
@@ -396,4 +397,138 @@ var (
 	_ brine.Transport   = (*Transport)(nil)
 	_ brine.LocalJob    = (*Job)(nil)
 	_ brine.EventStream = (*Stream)(nil)
+	_ brine.LocalJob    = (*AsyncJob)(nil)
 )
+
+// AsyncJob is a scriptable brine.LocalJob that delivers minion-return events
+// progressively and resolves Wait when all expected returns have been sent.
+//
+// Callers configure the job by calling Return for each minion before or during
+// Wait.  Once every expected minion has returned (or Close is called), Wait
+// unblocks and returns the accumulated result.  AsyncJob is useful for testing
+// middleware that observes progress events emitted via brine.Emit.
+//
+// Usage:
+//
+//	job := mock.NewAsyncJob("jid", req, "minion-1", "minion-2")
+//	go func() {
+//	    job.Return("minion-1", json.RawMessage(`true`), 0, nil)
+//	    job.Return("minion-2", json.RawMessage(`false`), 1, nil)
+//	}()
+//	result, err := job.Wait(ctx)
+type AsyncJob struct {
+	jid      string
+	req      brine.Request
+	expected []string
+
+	mu       sync.Mutex
+	results  map[string]brine.MinionResult
+	done     chan struct{}
+	doneOnce sync.Once
+}
+
+// NewAsyncJob creates an AsyncJob with the given JID, request, and expected
+// minion set.  Callers must call Return once per expected minion to unblock
+// Wait, or call Close to force Wait to return with whatever has accumulated.
+func NewAsyncJob(jid string, req brine.Request, expectedMinions ...string) *AsyncJob {
+	return &AsyncJob{
+		jid:      jid,
+		req:      req,
+		expected: append([]string(nil), expectedMinions...),
+		results:  make(map[string]brine.MinionResult, len(expectedMinions)),
+		done:     make(chan struct{}),
+	}
+}
+
+// ID implements brine.Job.
+func (j *AsyncJob) ID() string { return j.jid }
+
+// Request implements brine.Job.
+func (j *AsyncJob) Request() *brine.Request {
+	req := j.req
+
+	return &req
+}
+
+// ExpectedMinions implements brine.LocalJob.
+func (j *AsyncJob) ExpectedMinions() []string { return append([]string(nil), j.expected...) }
+
+// Return records a minion return and, if it is the last expected return,
+// unblocks Wait.  Calling Return after all minions have already returned is a
+// no-op.  failure may be nil for a successful return.
+func (j *AsyncJob) Return(minion string, ret json.RawMessage, retcode int, failure *brine.Failure) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	select {
+	case <-j.done:
+		return // already resolved; ignore late returns
+	default:
+	}
+
+	j.results[minion] = brine.MinionResult{
+		Minion:  minion,
+		JID:     j.jid,
+		RetCode: retcode,
+		Return:  append([]byte(nil), ret...),
+		Failure: failure,
+	}
+
+	// Resolve when every expected minion has returned.
+	for _, expected := range j.expected {
+		if _, ok := j.results[expected]; !ok {
+			return
+		}
+	}
+
+	j.doneOnce.Do(func() { close(j.done) })
+}
+
+// Close forces Wait to return with the currently accumulated result, marking
+// any expected minions that have not returned yet as missing.
+func (j *AsyncJob) Close() error {
+	j.doneOnce.Do(func() { close(j.done) })
+
+	return nil
+}
+
+// Wait blocks until all expected minions have returned (via Return) or Close
+// is called, and then returns the accumulated result.  ctx cancellation causes
+// an early return with the partial result and ctx.Err().
+func (j *AsyncJob) Wait(ctx context.Context) (*brine.Result, error) {
+	select {
+	case <-ctx.Done():
+		return j.snapshot(), ctx.Err()
+	case <-j.done:
+		return j.snapshot(), nil
+	}
+}
+
+// Events implements brine.Job.  AsyncJob does not support event streaming;
+// callers that need per-minion progress events should attach an observer to
+// the brine.Client instead.
+func (j *AsyncJob) Events(context.Context) (brine.EventStream, error) {
+	return NewStream(), nil
+}
+
+func (j *AsyncJob) snapshot() *brine.Result {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	result := &brine.Result{
+		JID:      j.jid,
+		Request:  j.Request(),
+		Expected: append([]string(nil), j.expected...),
+		ByMinion: make(map[string]brine.MinionResult, len(j.results)),
+	}
+
+	maps.Copy(result.ByMinion, j.results)
+
+	for _, minion := range j.expected {
+		if _, ok := j.results[minion]; !ok {
+			result.Missing = append(result.Missing, minion)
+		}
+	}
+
+	return result
+}

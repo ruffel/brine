@@ -3,6 +3,7 @@ package mock_test
 import (
 	"context"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/ruffel/brine"
@@ -76,4 +77,85 @@ func TestStream(t *testing.T) {
 
 	_, err = stream.Recv(context.Background())
 	require.ErrorIs(t, err, io.EOF)
+}
+
+func TestAsyncJobWaitsForAllReturns(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.List("m1", "m2"))
+	job := mock.NewAsyncJob("jid", req, "m1", "m2")
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		job.Return("m1", []byte(`true`), 0, nil)
+		job.Return("m2", []byte(`true`), 0, nil)
+	})
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	wg.Wait()
+
+	assert.Equal(t, "jid", result.JID)
+	assert.Equal(t, []string{"m1", "m2"}, result.Expected)
+	assert.Empty(t, result.Missing)
+	assert.Len(t, result.ByMinion, 2)
+}
+
+func TestAsyncJobPartialReturnOnClose(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.List("m1", "m2"))
+	job := mock.NewAsyncJob("jid", req, "m1", "m2")
+
+	job.Return("m1", []byte(`true`), 0, nil)
+	// Close before m2 returns.
+	require.NoError(t, job.Close())
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"m2"}, result.Missing)
+	assert.Contains(t, result.ByMinion, "m1")
+	assert.NotContains(t, result.ByMinion, "m2")
+}
+
+func TestAsyncJobCancellationReturnsPartial(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.List("m1", "m2"))
+	job := mock.NewAsyncJob("jid", req, "m1", "m2")
+
+	// Send only one return; the second will never arrive.
+	job.Return("m1", []byte(`true`), 0, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result, err := job.Wait(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotNil(t, result)
+}
+
+func TestAsyncJobLateReturnAfterCloseIsNoop(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.List("m1"))
+	job := mock.NewAsyncJob("jid", req, "m1")
+
+	require.NoError(t, job.Close())
+
+	// Return after Close must not panic or change the resolved result.
+	job.Return("m1", []byte(`true`), 0, nil)
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, result.ByMinion)
+}
+
+func TestAsyncJobExpectedMinionsMirrorConstruction(t *testing.T) {
+	t.Parallel()
+
+	req := brine.Local("test.ping", brine.List("a", "b", "c"))
+	job := mock.NewAsyncJob("jid", req, "a", "b", "c")
+
+	assert.Equal(t, []string{"a", "b", "c"}, job.ExpectedMinions())
 }
