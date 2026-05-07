@@ -342,9 +342,11 @@ func firstNonEmpty(values ...string) string {
 func eventJID(tag string, raw json.RawMessage) string {
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(eventPayload(raw), &body); err == nil {
-		var jid string
-		if err := json.Unmarshal(body["jid"], &jid); err == nil {
-			return jid
+		if jidRaw, ok := body["jid"]; ok && len(jidRaw) > 0 {
+			var jid string
+			if err := json.Unmarshal(jidRaw, &jid); err == nil {
+				return jid
+			}
 		}
 	}
 
@@ -365,9 +367,11 @@ func eventMinion(raw json.RawMessage) string {
 	}
 
 	for _, key := range []string{"id", "minion"} {
-		var minion string
-		if err := json.Unmarshal(body[key], &minion); err == nil {
-			return minion
+		if valRaw, ok := body[key]; ok && len(valRaw) > 0 {
+			var minion string
+			if err := json.Unmarshal(valRaw, &minion); err == nil {
+				return minion
+			}
 		}
 	}
 

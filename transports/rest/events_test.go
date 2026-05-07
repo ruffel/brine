@@ -423,3 +423,88 @@ func TestEventStreamCloseIsIdempotentEnough(t *testing.T) {
 	assert.NoError(t, stream.Close())
 	assert.NoError(t, stream.Close())
 }
+
+func TestEventJIDHandlesMissingFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tag     string
+		payload string
+		want    string
+	}{
+		{
+			name:    "jid present in payload",
+			tag:     "salt/job/111/ret/minion-1",
+			payload: `{"jid":"111"}`,
+			want:    "111",
+		},
+		{
+			name:    "jid absent falls back to tag",
+			tag:     "salt/job/222/ret/minion-1",
+			payload: `{"retcode":0}`,
+			want:    "222",
+		},
+		{
+			name:    "empty payload falls back to tag",
+			tag:     "salt/job/333/ret/minion-1",
+			payload: `{}`,
+			want:    "333",
+		},
+		{
+			name:    "non-job tag with no jid field returns empty",
+			tag:     "salt/auth",
+			payload: `{}`,
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := eventJID(tt.tag, []byte(tt.payload))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestEventMinionHandlesMissingFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "id present",
+			payload: `{"id":"minion-1"}`,
+			want:    "minion-1",
+		},
+		{
+			name:    "minion present",
+			payload: `{"minion":"minion-2"}`,
+			want:    "minion-2",
+		},
+		{
+			name:    "neither field present",
+			payload: `{"retcode":0}`,
+			want:    "",
+		},
+		{
+			name:    "empty object",
+			payload: `{}`,
+			want:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := eventMinion([]byte(tt.payload))
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
