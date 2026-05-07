@@ -10,9 +10,18 @@ import (
 type RequestKind int
 
 const (
+	// KindLocal targets Salt minions via the Salt local client.  A local
+	// request requires a non-nil Target and a non-empty Function.
 	KindLocal RequestKind = iota
+	// KindRunner executes a Salt runner module on the master.  Runner requests
+	// do not require a Target but must have a non-empty Function.
 	KindRunner
+	// KindWheel executes a Salt wheel module (master-side admin operations).
+	// Wheel requests do not require a Target but must have a non-empty Function.
 	KindWheel
+	// KindLowstate passes raw Salt lowstate entries directly to the transport.
+	// At least one LowstateEntry is required; each entry must carry Client and
+	// Fun, and local/local_async entries must also carry a non-empty Target.
 	KindLowstate
 )
 
