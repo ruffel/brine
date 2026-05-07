@@ -51,6 +51,10 @@ type streamEvent struct {
 // Subscribe opens Salt's rest_cherrypy server-sent event stream. The returned
 // EventStream must be closed by the caller. Recv respects per-call context
 // cancellation without closing the underlying stream.
+//
+// The stream does not automatically reconnect after Salt, the network, or an
+// intermediate proxy closes the connection. Callers that receive a transport
+// error or EOF after an interruption should open a new subscription.
 func (t *Transport) Subscribe(ctx context.Context, filter brine.EventFilter) (brine.EventStream, error) {
 	return t.subscribe(ctx, filter, true)
 }
@@ -411,6 +415,9 @@ func eventMatchesFilter(event brine.Event, filter brine.EventFilter, tag string)
 	return false
 }
 
+// eventTagMatchesFilter reports whether a Salt event tag matches a filter tag.
+// Empty filter tags never match. Exact matches succeed, and prefix matches are
+// only accepted when they end on a path boundary such as "/".
 func eventTagMatchesFilter(tag string, filterTag string) bool {
 	if filterTag == "" {
 		return false
