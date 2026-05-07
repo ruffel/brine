@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -221,7 +222,11 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 	scanner.Buffer(make([]byte, initialBridgeFrameBufferBytes), maxBridgeFrameBytes)
 	for scanner.Scan() {
 		if err := accumulator.apply(ctx, scanner.Bytes()); err != nil {
+			// Cancel the child context so the process terminates, drain any
+			// remaining output so the OS pipe buffer does not deadlock, and
+			// then collect the exit status before returning.
 			cancel()
+			_, _ = io.Copy(io.Discard, stdout)
 			_ = cmd.Wait()
 
 			return nil, err
@@ -230,6 +235,7 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 
 	if err := scanner.Err(); err != nil {
 		cancel()
+		_, _ = io.Copy(io.Discard, stdout)
 		_ = cmd.Wait()
 
 		return nil, brine.NewTransportError("python bridge stdout", err)
