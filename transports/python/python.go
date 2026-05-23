@@ -271,6 +271,16 @@ func (t *Transport) commandEnv(base []string) []string {
 	return append(filtered, prefix+t.saltMasterConfig)
 }
 
+func (t *Transport) bridgeCommand(ctx context.Context, input []byte) *exec.Cmd {
+	args := append([]string(nil), t.args...)
+	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
+	cmd.Dir = t.dir
+	cmd.Env = t.commandEnv(cmd.Environ())
+	cmd.Stdin = bytes.NewReader(input)
+
+	return cmd
+}
+
 type bridgeStartResult struct {
 	jid           string
 	expected      []string
@@ -283,12 +293,7 @@ func (t *Transport) invokeStart(ctx context.Context, req brine.Request, payload 
 		return bridgeStartResult{}, fmt.Errorf("marshal Python bridge start request: %w", err)
 	}
 
-	args := append([]string(nil), t.args...)
-	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
-	cmd.Dir = t.dir
-	cmd.Env = t.commandEnv(cmd.Environ())
-	cmd.Stdin = bytes.NewReader(input)
-
+	cmd := t.bridgeCommand(ctx, input)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -496,15 +501,10 @@ func (t *Transport) invokeWait(
 		return nil, fmt.Errorf("marshal Python bridge wait request: %w", err)
 	}
 
-	args := append([]string(nil), t.args...)
 	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
-	cmd.Dir = t.dir
-	cmd.Env = t.commandEnv(cmd.Environ())
-	cmd.Stdin = bytes.NewReader(input)
-
+	cmd := t.bridgeCommand(cmdCtx, input)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, brine.NewTransportError("python bridge wait stdout", err)
@@ -574,15 +574,10 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 		return nil, fmt.Errorf("marshal Python bridge request: %w", err)
 	}
 
-	args := append([]string(nil), t.args...)
 	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(cmdCtx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
-	cmd.Dir = t.dir
-	cmd.Env = t.commandEnv(cmd.Environ())
-	cmd.Stdin = bytes.NewReader(input)
-
+	cmd := t.bridgeCommand(cmdCtx, input)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, brine.NewTransportError("python bridge stdout", err)
@@ -632,12 +627,7 @@ func (t *Transport) invokeScalar(ctx context.Context, req brine.Request, payload
 		return nil, fmt.Errorf("marshal Python bridge request: %w", err)
 	}
 
-	args := append([]string(nil), t.args...)
-	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
-	cmd.Dir = t.dir
-	cmd.Env = t.commandEnv(cmd.Environ())
-	cmd.Stdin = bytes.NewReader(input)
-
+	cmd := t.bridgeCommand(ctx, input)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
