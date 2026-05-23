@@ -156,9 +156,9 @@ Justfile recipes.
 
 Transport authors can use `transportkit` to build normalized results and
 classify common Salt failure shapes consistently with Brine's built-in
-transports. See `COMPATIBILITY.md`, `TESTING.md`,
-and `test/integration/README.md` for the REST/Python capability matrix, contract
-coverage.
+transports. See `COMPATIBILITY.md`, `TESTING.md`, `RELEASE.md`, and
+`test/integration/README.md` for the REST/Python capability matrix, contract
+coverage, and release-readiness workflow.
 
 ## Repository tools
 

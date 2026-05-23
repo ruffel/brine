@@ -1,0 +1,36 @@
+name: Compatibility
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  salt-compat:
+    name: Salt compatibility matrix
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Start Salt integration topology
+        run: |
+          docker compose -f test/integration/compose.yaml up \
+            -d --build --force-recreate
+          test/integration/scripts/wait-ready.sh
+
+      - name: Run compatibility matrix
+        run: BRINE_INTEGRATION=1 go run ./cmd/brine-compatcheck
+
+      - name: Stop Salt integration topology
+        if: always()
+        run: docker compose -f test/integration/compose.yaml down -v

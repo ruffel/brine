@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Check root module tidiness
+        run: go mod tidy -diff
+
+      - name: Check tools module tidiness
+        run: go -C tools mod tidy -diff
+
+      - name: Compile Python bridge
+        run: python -m py_compile transports/python/brine_salt_bridge.py
+
+      - name: Run race tests
+        run: go test -race ./...
+
+      - name: Run tools tests
+        run: go -C tools test ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
