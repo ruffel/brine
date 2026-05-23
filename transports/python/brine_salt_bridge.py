@@ -22,12 +22,15 @@ Supported operations:
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import traceback
 from typing import Any, Optional
 
 PROTOCOL_VERSION = 1
+DEFAULT_MASTER_CONFIG = "/etc/salt/master"
+MASTER_CONFIG_ENV = "BRINE_SALT_MASTER_CONFIG"
 
 
 def main() -> int:
@@ -245,7 +248,7 @@ def lookup_jid(jid: str) -> Any:
     import salt.config  # Imported lazily so protocol tests do not need Salt installed.
     import salt.runner  # Imported lazily so protocol tests do not need Salt installed.
 
-    opts = salt.config.master_config("/etc/salt/master")
+    opts = salt.config.master_config(master_config_path())
     opts.update({"quiet": True})
     runner = salt.runner.RunnerClient(opts)
     try:
@@ -275,7 +278,7 @@ def run_runner(request: dict[str, Any]) -> dict[str, Any]:
     if not function:
         return {"error": {"kind": "protocol", "message": "missing function"}}
 
-    opts = salt.config.master_config("/etc/salt/master")
+    opts = salt.config.master_config(master_config_path())
     opts.update({"quiet": True})
     runner = salt.runner.RunnerClient(opts)
     try:
@@ -290,6 +293,10 @@ def run_runner(request: dict[str, Any]) -> dict[str, Any]:
         return {"type": "scalar", "scalar": {"error": str(exc)}}
 
     return {"type": "scalar", "scalar": value}
+
+
+def master_config_path() -> str:
+    return os.environ.get(MASTER_CONFIG_ENV) or DEFAULT_MASTER_CONFIG
 
 
 def emit(frame: dict[str, Any]) -> None:

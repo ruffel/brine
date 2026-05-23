@@ -508,6 +508,39 @@ func TestNewRequiresCommand(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestCommandEnvAddsSaltMasterConfig(t *testing.T) {
+	t.Parallel()
+
+	transport, err := New(Config{
+		Command:          "helper",
+		Env:              []string{saltMasterConfigEnv + "=/old/master", "OTHER=1"},
+		SaltMasterConfig: "/custom/master",
+	})
+	require.NoError(t, err)
+
+	env := transport.commandEnv([]string{"BASE=1"})
+
+	assert.Contains(t, env, "BASE=1")
+	assert.Contains(t, env, "OTHER=1")
+	assert.Contains(t, env, saltMasterConfigEnv+"=/custom/master")
+	assert.NotContains(t, env, saltMasterConfigEnv+"=/old/master")
+}
+
+func TestCommandEnvPreservesConfiguredEnvWithoutSaltMasterConfig(t *testing.T) {
+	t.Parallel()
+
+	transport, err := New(Config{
+		Command: "helper",
+		Env:     []string{saltMasterConfigEnv + "=/env/master"},
+	})
+	require.NoError(t, err)
+
+	env := transport.commandEnv([]string{"BASE=1"})
+
+	assert.Contains(t, env, "BASE=1")
+	assert.Contains(t, env, saltMasterConfigEnv+"=/env/master")
+}
+
 func TestNormalizeMissingLocalResult(t *testing.T) {
 	t.Parallel()
 

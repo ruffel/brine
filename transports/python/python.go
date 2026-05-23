@@ -20,6 +20,7 @@ import (
 const (
 	transportName                 = "python"
 	bridgeProtocolVersion         = 1
+	saltMasterConfigEnv           = "BRINE_SALT_MASTER_CONFIG"
 	initialBridgeFrameBufferBytes = 64 * 1024
 	maxBridgeFrameBytes           = 10 * 1024 * 1024
 )
@@ -38,6 +39,11 @@ type Config struct {
 	// Env contains additional environment variables for the helper process.
 	Env []string
 
+	// SaltMasterConfig is the Salt master config file path used by the bundled
+	// helper for runner-backed operations such as jobs.lookup_jid. When empty,
+	// the helper uses its default path.
+	SaltMasterConfig string
+
 	// JobPollInterval is sent to async wait helpers as a polling hint.
 	JobPollInterval time.Duration
 
@@ -50,13 +56,14 @@ type Config struct {
 type Transport struct {
 	brine.UnsupportedTransport
 
-	command         string
-	args            []string
-	dir             string
-	env             []string
-	jobPollInterval time.Duration
-	jobWaitTimeout  time.Duration
-	caps            brine.Capabilities
+	command          string
+	args             []string
+	dir              string
+	env              []string
+	saltMasterConfig string
+	jobPollInterval  time.Duration
+	jobWaitTimeout   time.Duration
+	caps             brine.Capabilities
 }
 
 type bridgeRequest struct {
@@ -137,12 +144,13 @@ func New(config Config) (*Transport, error) {
 	}
 
 	return &Transport{
-		command:         config.Command,
-		args:            append([]string(nil), config.Args...),
-		dir:             config.Dir,
-		env:             append([]string(nil), config.Env...),
-		jobPollInterval: config.JobPollInterval,
-		jobWaitTimeout:  config.JobWaitTimeout,
+		command:          config.Command,
+		args:             append([]string(nil), config.Args...),
+		dir:              config.Dir,
+		env:              append([]string(nil), config.Env...),
+		saltMasterConfig: config.SaltMasterConfig,
+		jobPollInterval:  config.JobPollInterval,
+		jobWaitTimeout:   config.JobWaitTimeout,
 		caps: brine.NewCapabilities(
 			brine.CapSynchronousRun,
 			brine.CapLocalRun,
@@ -245,6 +253,24 @@ func responsiveMinions(result *brine.Result) []string {
 	return minions
 }
 
+func (t *Transport) commandEnv(base []string) []string {
+	env := append([]string(nil), base...)
+	env = append(env, t.env...)
+	if t.saltMasterConfig == "" {
+		return env
+	}
+
+	prefix := saltMasterConfigEnv + "="
+	filtered := env[:0]
+	for _, item := range env {
+		if !strings.HasPrefix(item, prefix) {
+			filtered = append(filtered, item)
+		}
+	}
+
+	return append(filtered, prefix+t.saltMasterConfig)
+}
+
 type bridgeStartResult struct {
 	jid           string
 	expected      []string
@@ -260,7 +286,7 @@ func (t *Transport) invokeStart(ctx context.Context, req brine.Request, payload 
 	args := append([]string(nil), t.args...)
 	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
 	cmd.Dir = t.dir
-	cmd.Env = append(cmd.Environ(), t.env...)
+	cmd.Env = t.commandEnv(cmd.Environ())
 	cmd.Stdin = bytes.NewReader(input)
 
 	var stdout bytes.Buffer
@@ -476,7 +502,7 @@ func (t *Transport) invokeWait(
 
 	cmd := exec.CommandContext(cmdCtx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
 	cmd.Dir = t.dir
-	cmd.Env = append(cmd.Environ(), t.env...)
+	cmd.Env = t.commandEnv(cmd.Environ())
 	cmd.Stdin = bytes.NewReader(input)
 
 	stdout, err := cmd.StdoutPipe()
@@ -554,7 +580,7 @@ func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload 
 
 	cmd := exec.CommandContext(cmdCtx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
 	cmd.Dir = t.dir
-	cmd.Env = append(cmd.Environ(), t.env...)
+	cmd.Env = t.commandEnv(cmd.Environ())
 	cmd.Stdin = bytes.NewReader(input)
 
 	stdout, err := cmd.StdoutPipe()
@@ -609,7 +635,7 @@ func (t *Transport) invokeScalar(ctx context.Context, req brine.Request, payload
 	args := append([]string(nil), t.args...)
 	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
 	cmd.Dir = t.dir
-	cmd.Env = append(cmd.Environ(), t.env...)
+	cmd.Env = t.commandEnv(cmd.Environ())
 	cmd.Stdin = bytes.NewReader(input)
 
 	var stdout bytes.Buffer

@@ -79,11 +79,18 @@ Operator wrapper with async polling hints:
 
 ```go
 transport, err := python.New(python.Config{
-    Command:         "/usr/local/bin/brine-python-bridge",
-    JobPollInterval: time.Second,
-    JobWaitTimeout:  10 * time.Minute,
+    Command:          "/usr/local/bin/brine-python-bridge",
+    SaltMasterConfig: "/etc/salt/master",
+    JobPollInterval:  time.Second,
+    JobWaitTimeout:   10 * time.Minute,
 })
 ```
+
+`SaltMasterConfig` is optional. The bundled helper defaults to
+`/etc/salt/master`, but Salt onedir or custom master layouts can point it at a
+different file. The Go transport sends the value to the helper as
+`BRINE_SALT_MASTER_CONFIG`; wrappers may also set that environment variable
+directly when they need to keep Go configuration minimal.
 
 When missing-minion detection matters under Python, prefer explicit list targets:
 
