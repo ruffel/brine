@@ -11,6 +11,8 @@ Supported operations:
 
 * local/run: gather responsive minions, execute cmd_iter, and stream minion
   return frames.
+* local/batch: gather responsive minions, execute cmd_batch, and stream minion
+  return frames.
 * local/start: dispatch cmd_async and return a started frame with the jid and
   responsive minions gathered before dispatch.
 * local/wait: poll jobs.lookup_jid for a jid and stream newly observed minion
@@ -67,6 +69,8 @@ def handle(request: dict[str, Any]) -> Any:
     if kind == "local":
         if operation == "run":
             return run_local(request)
+        if operation == "batch":
+            return run_local_batch(request)
         if operation == "start":
             return start_local(request)
         if operation == "wait":
@@ -142,6 +146,49 @@ def run_local(request: dict[str, Any]) -> dict[str, Any]:
     except TypeError:
         cmd_kwargs.pop("full_return", None)
         iterator = client.cmd_iter(minions, function, args, **cmd_kwargs)
+
+    for node in iterator:
+        if not isinstance(node, dict) or not node:
+            continue
+
+        minion, data = next(iter(node.items()))
+        emit(minion_frame(str(minion), data))
+
+    return {"type": "done"}
+
+
+def run_local_batch(request: dict[str, Any]) -> dict[str, Any]:
+    import salt.client  # Imported lazily so protocol tests do not need Salt installed.
+
+    fields = local_fields(request)
+    if isinstance(fields, dict):
+        return fields
+
+    function, target_expr, target_type, args, kwargs, options = fields
+    batch = str(options.get("batch") or "")
+    timeout = options.get("timeout") or None
+    if not batch:
+        return {"error": {"kind": "protocol", "message": "missing batch option"}}
+
+    client = salt.client.LocalClient()
+    minions = list(client.gather_minions(target_expr, target_type) or [])
+    expected = expected_minions(target_expr, target_type, minions)
+    emit({"type": "minions", "minions": expected})
+
+    cmd_kwargs: dict[str, Any] = {
+        "tgt_type": "list",
+        "kwarg": kwargs,
+        "batch": batch,
+        "timeout": timeout,
+    }
+    if options.get("full_return"):
+        cmd_kwargs["full_return"] = True
+
+    try:
+        iterator = client.cmd_batch(minions, function, args, **cmd_kwargs)
+    except TypeError:
+        cmd_kwargs.pop("full_return", None)
+        iterator = client.cmd_batch(minions, function, args, **cmd_kwargs)
 
     for node in iterator:
         if not isinstance(node, dict) or not node:

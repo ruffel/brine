@@ -11,12 +11,13 @@ The command bridge currently advertises:
 - synchronous local execution (`CapSynchronousRun`, `CapLocalRun`);
 - asynchronous local dispatch and wait (`CapLocalStart`, `CapJobLookup`);
 - synchronous runner execution (`CapRunnerRun`);
+- local batch execution for `Run` (`CapBatch`);
 - responsive target resolution through `test.ping` (`CapTargetResolution`);
 - run-scoped minion return progress during local runs (`CapRunScopedReturns`).
 
 It intentionally does not advertise global events, generic streaming-return
-subscriptions, batch execution, or raw lowstate. Those operations return
-`UnsupportedError` through the normal Brine transport interface.
+subscriptions, or raw lowstate. Those operations return `UnsupportedError`
+through the normal Brine transport interface.
 
 ## Runtime model
 
@@ -25,15 +26,17 @@ request to stdin, and reads newline-delimited JSON frames from stdout. Requests
 include `protocol_version: 1`; helpers should reject unknown protocol versions
 rather than guessing at compatibility. Local `Run` first emits the expected
 minion list, then emits one return frame per minion as Salt's `cmd_iter` yields
-it, and finally emits a done frame. For explicit list targets, the expected list
-is the original target list so offline or nonexistent minions can be marked
-missing even though execution is sent only to responsive gathered minions. Local
-`Start` sends operation `start` and expects a `started` frame with a jid and
-expected minions; `Job.Wait` sends operation `wait` with that jid and expected
-minions, then consumes the same minion/return/done frame stream while the helper
-polls `jobs.lookup_jid`. The Go transport accumulates those frames into the
-final `Result` and emits Brine observer events for expected minions and
-per-minion returns while `Client.Run` or `Job.Wait` is collecting.
+it, and finally emits a done frame. Batch local `Run` uses operation `batch`,
+passes Brine's batch count or percent through to Salt's `cmd_batch`, and emits
+the same minion/return/done frame stream. For explicit list targets, the
+expected list is the original target list so offline or nonexistent minions can
+be marked missing even though execution is sent only to responsive gathered
+minions. Local `Start` sends operation `start` and expects a `started` frame
+with a jid and expected minions; `Job.Wait` sends operation `wait` with that jid
+and expected minions, then consumes the same minion/return/done frame stream
+while the helper polls `jobs.lookup_jid`. The Go transport accumulates those
+frames into the final `Result` and emits Brine observer events for expected
+minions and per-minion returns while `Client.Run` or `Job.Wait` is collecting.
 
 The bundled helper script, `brine_salt_bridge.py`, imports
 `salt.client.LocalClient`, so it must run in an environment where Salt's Python

@@ -3,17 +3,18 @@
 // The transport starts a helper process per request and exchanges JSON over
 // stdin and stdout. It intentionally advertises a narrow capability set:
 // synchronous and asynchronous local execution, synchronous runner execution,
-// responsive target resolution through test.ping, and run-scoped return events
-// for local Run calls that emit streaming frames. Global events and raw lowstate
-// requests return Brine's normal UnsupportedError through the embedded
+// local batch execution, responsive target resolution through test.ping, and
+// run-scoped return events for local Run calls that emit streaming frames.
+// Global events and raw lowstate requests return Brine's normal UnsupportedError
+// through the embedded
 // UnsupportedTransport.
 //
 // The helper receives one JSON object on stdin. Requests include
 // protocol_version=1 so helpers and Go callers fail explicitly on incompatible
 // protocol changes. Local requests include kind, function, target, args, kwargs,
-// options, and metadata fields. Runner requests
-// omit target data and use the same function, args, kwargs, options, and
-// metadata fields. Options currently include full_return and timeout seconds.
+// options, and metadata fields. Runner requests omit target data and use the
+// same function, args, kwargs, options, and metadata fields. Options currently
+// include full_return, timeout seconds, and local Run batch size.
 // Metadata is caller-owned Brine metadata and should not be sent to Salt unless
 // the helper intentionally opts into doing so.
 //

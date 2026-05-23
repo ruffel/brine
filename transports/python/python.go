@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -86,10 +87,11 @@ type bridgeTarget struct {
 }
 
 type bridgeOptions struct {
-	FullReturn         bool `json:"full_return,omitempty"` //nolint:tagliatelle // Bridge protocol mirrors Salt lowstate naming.
-	TimeoutSeconds     int  `json:"timeout,omitempty"`
-	PollIntervalMillis int  `json:"poll_interval_ms,omitempty"` //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
-	WaitTimeoutSeconds int  `json:"wait_timeout,omitempty"`     //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
+	FullReturn         bool   `json:"full_return,omitempty"` //nolint:tagliatelle // Bridge protocol mirrors Salt lowstate naming.
+	TimeoutSeconds     int    `json:"timeout,omitempty"`
+	PollIntervalMillis int    `json:"poll_interval_ms,omitempty"` //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
+	WaitTimeoutSeconds int    `json:"wait_timeout,omitempty"`     //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
+	Batch              string `json:"batch,omitempty"`
 }
 
 type bridgeResponse struct {
@@ -158,6 +160,7 @@ func New(config Config) (*Transport, error) {
 			brine.CapRunnerRun,
 			brine.CapJobLookup,
 			brine.CapTargetResolution,
+			brine.CapBatch,
 			brine.CapRunScopedReturns,
 		),
 	}, nil
@@ -174,6 +177,9 @@ func (t *Transport) Info(context.Context) (brine.TransportInfo, error) {
 // Run implements brine.Handler for local and runner requests.
 func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, error) {
 	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	if err := t.requireSupportedOptions(req, "Run"); err != nil {
 		return nil, err
 	}
 
@@ -204,6 +210,9 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 // another helper process to collect lookup results and stream per-minion frames.
 func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, error) {
 	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	if err := t.requireSupportedOptions(req, "Start"); err != nil {
 		return nil, err
 	}
 
@@ -251,6 +260,26 @@ func responsiveMinions(result *brine.Result) []string {
 	}
 
 	return minions
+}
+
+func (t *Transport) requireSupportedOptions(req brine.Request, operation string) error {
+	if !requestUsesBatch(req) {
+		return nil
+	}
+
+	if req.Kind != brine.KindLocal || operation != "Run" {
+		return &brine.UnsupportedError{Capability: brine.CapBatch, Operation: operation}
+	}
+
+	if t.caps.Supports(brine.CapBatch) {
+		return nil
+	}
+
+	return &brine.UnsupportedError{Capability: brine.CapBatch, Operation: operation}
+}
+
+func requestUsesBatch(req brine.Request) bool {
+	return req.Options.Batch.Count > 0 || req.Options.Batch.Percent > 0
 }
 
 func (t *Transport) commandEnv(base []string) []string {
@@ -685,6 +714,7 @@ func makeBridgeRequest(req brine.Request) (bridgeRequest, error) {
 		Options: bridgeOptions{
 			FullReturn:     req.Options.FullReturn,
 			TimeoutSeconds: durationSecondsCeil(req.Options.ModuleTimeout),
+			Batch:          batchOption(req.Options.Batch),
 		},
 		Metadata: cloneMap(req.Metadata),
 	}
@@ -696,9 +726,24 @@ func makeBridgeRequest(req brine.Request) (bridgeRequest, error) {
 		}
 
 		payload.Target = bridgeTarget{Type: spec.Type, Expression: spec.Expression}
+		if payload.Options.Batch != "" {
+			payload.Operation = "batch"
+		}
 	}
 
 	return payload, nil
+}
+
+func batchOption(batch brine.Batch) string {
+	if batch.Count > 0 {
+		return strconv.Itoa(batch.Count)
+	}
+
+	if batch.Percent > 0 {
+		return fmt.Sprintf("%g%%", batch.Percent)
+	}
+
+	return ""
 }
 
 func durationSecondsCeil(duration time.Duration) int {
@@ -864,6 +909,10 @@ func unsupportedBridgeError(req brine.Request, err *bridgeError) error {
 
 	if len(err.Capabilities) > 0 {
 		return &brine.UnsupportedError{Operation: operation, Capabilities: append([]brine.Capability(nil), err.Capabilities...)}
+	}
+
+	if operation == "batch" || requestUsesBatch(req) {
+		return &brine.UnsupportedError{Operation: operation, Capability: brine.CapBatch}
 	}
 
 	if capability := runCapabilityForKind(req.Kind); capability != "" {

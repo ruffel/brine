@@ -59,9 +59,10 @@ resolution, and the strongest missing-minion detection.
 
 The Python bridge is a compatibility backend for environments where REST access
 is unavailable. It supports local and runner execution, local async jobs,
-run-scoped progress, and target resolution, but intentionally does not support
-global events, batch execution, or raw lowstate. It starts one helper process
-per operation, so REST is still the better fit for high-concurrency services.
+local batch execution, run-scoped progress, and target resolution, but
+intentionally does not support global events or raw lowstate. It starts one
+helper process per operation, so REST is still the better fit for
+high-concurrency services.
 
 See `COMPATIBILITY.md` for the live-tested matrix and Python-specific caveats.
 

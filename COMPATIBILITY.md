@@ -16,7 +16,7 @@ Salt topology for the live contract report.
 | Local async `Start` / `Wait` | Supported | Supported through short-lived bridge operations |
 | Job events / global events | Supported through `rest_cherrypy` SSE | Unsupported |
 | Run-scoped progress | Supported | Supported when the bridge emits streaming frames |
-| Batch execution | Supported | Unsupported |
+| Batch execution | Supported | Supported for local `Run` |
 | Target resolution | Supported through `test.ping` | Supported through `test.ping` |
 | Missing-minion detection | Strongest in REST async/list-target flows; direct list targets also mark missing returns | Limited to minions the bridge can gather before execution |
 
@@ -34,12 +34,13 @@ pass for:
 - runner scalar results;
 - local async `Start` / `Wait`;
 - run-scoped progress from streaming local frames;
+- local batch execution;
 - target resolution through responsive minions;
 - explicit unsupported-operation errors for capabilities it does not advertise.
 
-Python intentionally does not advertise lowstate, batch, or global event
-capabilities. Those contracts should be skipped or should verify
-`brine.ErrUnsupported` behavior rather than pass as supported features.
+Python intentionally does not advertise lowstate or global event capabilities.
+Those contracts should be skipped or should verify `brine.ErrUnsupported`
+behavior rather than pass as supported features.
 
 The largest Python compatibility caveat is missing-minion semantics for glob,
 compound, grain, pillar, and nodegroup targets. For explicit list targets, the

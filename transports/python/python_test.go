@@ -118,6 +118,7 @@ func TestCapabilitiesAdvertiseRunScopedLocalReturns(t *testing.T) {
 	assert.True(t, caps.Supports(brine.CapRunnerRun))
 	assert.True(t, caps.Supports(brine.CapJobLookup))
 	assert.True(t, caps.Supports(brine.CapTargetResolution))
+	assert.True(t, caps.Supports(brine.CapBatch))
 	assert.True(t, caps.Supports(brine.CapRunScopedReturns))
 	assert.False(t, caps.Supports(brine.CapEvents))
 }
@@ -239,6 +240,13 @@ func TestBridgeUnsupportedErrorMapping(t *testing.T) {
 			operation: "Run",
 			caps:      []brine.Capability{brine.CapRunnerStart, brine.CapLowstateStart},
 		},
+		{
+			name:      "batch request maps old helper unsupported operation to batch",
+			req:       brine.Local("test.ping", brine.Glob("*"), brine.BatchCount(1)),
+			response:  `{"error":{"kind":"unsupported","message":"unsupported local operation 'batch'","operation":"batch"}}`,
+			operation: "batch",
+			cap:       brine.CapBatch,
+		},
 	}
 
 	for _, tt := range tests {
@@ -256,6 +264,26 @@ func TestBridgeUnsupportedErrorMapping(t *testing.T) {
 			assert.Equal(t, tt.caps, unsupported.Capabilities)
 		})
 	}
+}
+
+func TestBatchOptionsOnlyApplyToLocalRun(t *testing.T) {
+	t.Parallel()
+
+	transport := newHelperTransport(t, `{}`)
+
+	_, err := transport.Run(context.Background(), brine.Runner("manage.alived", brine.BatchCount(1)))
+	require.ErrorIs(t, err, brine.ErrUnsupported)
+
+	var unsupported *brine.UnsupportedError
+	require.ErrorAs(t, err, &unsupported)
+	assert.Equal(t, "Run", unsupported.Operation)
+	assert.Equal(t, brine.CapBatch, unsupported.Capability)
+
+	_, err = transport.Start(context.Background(), brine.Local("test.ping", brine.Glob("*"), brine.BatchCount(1)))
+	require.ErrorIs(t, err, brine.ErrUnsupported)
+	require.ErrorAs(t, err, &unsupported)
+	assert.Equal(t, "Start", unsupported.Operation)
+	assert.Equal(t, brine.CapBatch, unsupported.Capability)
 }
 
 func TestResolveUsesLocalPing(t *testing.T) {
@@ -435,6 +463,20 @@ func TestMakeBridgeRequest(t *testing.T) {
 	assert.Equal(t, bridgeProtocolVersion, runner.ProtocolVersion)
 	assert.Equal(t, "runner", runner.Kind)
 	assert.Empty(t, runner.Target.Expression)
+}
+
+func TestMakeBridgeRequestBatchOptions(t *testing.T) {
+	t.Parallel()
+
+	count, err := makeBridgeRequest(brine.Local("test.ping", brine.Glob("*"), brine.BatchCount(2)))
+	require.NoError(t, err)
+	assert.Equal(t, "batch", count.Operation)
+	assert.Equal(t, "2", count.Options.Batch)
+
+	percent, err := makeBridgeRequest(brine.Local("test.ping", brine.Glob("*"), brine.BatchPercent(12.5)))
+	require.NoError(t, err)
+	assert.Equal(t, "batch", percent.Operation)
+	assert.Equal(t, "12.5%", percent.Options.Batch)
 }
 
 //nolint:paralleltest // This helper runs as a subprocess for other parallel tests.
