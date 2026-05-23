@@ -3,6 +3,16 @@
 Brine is a Go library for working with [SaltStack](https://saltproject.io/)
 through a transport-neutral API.
 
+## Install
+
+Brine currently targets Go `1.25.6` and is tested against Salt `3006.9` in the
+integration topology. Until the first tagged release, install from the current
+module head:
+
+```sh
+go get github.com/ruffel/brine@latest
+```
+
 ## Quick start
 
 Create a Salt REST transport, wrap it in a `brine.Client`, and execute Salt work
@@ -39,6 +49,38 @@ if err != nil {
 
 pings, err := brine.DecodeByMinion[bool](result)
 ```
+
+## Choose a transport
+
+REST is the default production transport when `rest_cherrypy` is available.
+It supports the broadest MVP surface: local and runner execution, raw lowstate,
+local async jobs, events, run-scoped progress, batch execution, target
+resolution, and the strongest missing-minion detection.
+
+The Python bridge is a compatibility backend for environments where REST access
+is unavailable. It supports local and runner execution, local async jobs,
+run-scoped progress, and target resolution, but intentionally does not support
+global events, batch execution, or raw lowstate. It starts one helper process
+per operation, so REST is still the better fit for high-concurrency services.
+
+See `COMPATIBILITY.md` for the live-tested matrix and Python-specific caveats.
+
+## REST setup checklist
+
+For REST deployments, configure Salt's `rest_cherrypy` endpoint and allow the
+Salt API user to run the clients Brine needs:
+
+- `local` and `local_async` for minion execution;
+- `runner` for job lookup and runner calls;
+- event stream access when using `Client.Events`, `Job.Events`, or progress
+  observers;
+- batch execution permissions if callers use `brine.BatchCount` or
+  `brine.BatchPercent`.
+
+The integration topology keeps the minimal local test shape in
+`test/integration/salt/master.d/brine.conf`. Production environments should use
+their normal TLS, authentication, and eauth policies rather than the test
+credentials from that file.
 
 ## Execution safety
 
@@ -90,6 +132,19 @@ process configured by `python.Config.Command`, sends one JSON request on stdin,
 and reads JSON response or streaming frames from stdout. See the
 `transports/python` package documentation for the bridge protocol, supported
 capabilities, and unsupported-error mapping.
+
+## MVP limitations
+
+- Python bridge missing-minion detection is strongest for explicit list targets;
+  dynamic targets depend on what Salt's `gather_minions` returns before
+  execution.
+- Python bridge async waits use a short-lived helper process that polls
+  `jobs.lookup_jid`; prefer REST for global event streams or high-concurrency
+  services.
+- Runner async and lowstate async dispatch are intentionally unsupported until
+  their Salt response and lookup semantics are covered by fixtures.
+- Typed wheel APIs were removed from the root API. Use local execution, runner
+  execution, or raw lowstate where a transport advertises lowstate support.
 
 ## Testing and implementing transports
 
