@@ -18,9 +18,12 @@ import (
 )
 
 const (
-	contentTypeJSON  = "application/json"
-	transportName    = "rest"
-	maxResponseBytes = 64 * 1024 * 1024 // 64 MiB
+	contentTypeJSON      = "application/json"
+	transportName        = "rest"
+	saltClientLocal      = "local"
+	saltClientLocalAsync = "local_async"
+	saltClientRunner     = "runner"
+	maxResponseBytes     = 64 * 1024 * 1024 // 64 MiB
 )
 
 // LocalRunMode controls how local execution requests are collected by Run.
@@ -120,7 +123,6 @@ func capabilitiesForLocalRunMode(mode LocalRunMode) brine.Capabilities {
 		brine.CapLocalRun,
 		brine.CapLocalStart,
 		brine.CapRunnerRun,
-		brine.CapWheelRun,
 		brine.CapLowstate,
 		brine.CapEvents,
 		brine.CapJobLookup,
@@ -297,6 +299,10 @@ func (t *Transport) runDirect(ctx context.Context, req brine.Request) (*brine.Re
 
 	body, err := t.post(ctx, payload)
 	if err != nil {
+		if result := resultFromRunnerProtocolError(req, err); result != nil {
+			return result, nil
+		}
+
 		return nil, err
 	}
 
@@ -406,7 +412,7 @@ func (t *Transport) detectSaltVersion(ctx context.Context) (string, bool) {
 	}
 
 	// Attempt 3: runner.test.get_opts (legacy fallback).
-	body, err := t.post(ctx, []map[string]any{{"client": "runner", "fun": "test.get_opts"}})
+	body, err := t.post(ctx, []map[string]any{{"client": saltClientRunner, "fun": "test.get_opts"}})
 	if err != nil {
 		return "", false
 	}
@@ -443,7 +449,7 @@ func (t *Transport) detectVersionFromWelcome(ctx context.Context) (string, bool)
 // to allow the manage.versions runner, which is granted more broadly than
 // test.get_opts in typical Salt hardened deployments.
 func (t *Transport) detectVersionFromManageVersions(ctx context.Context) (string, bool) {
-	body, err := t.post(ctx, []map[string]any{{"client": "runner", "fun": "manage.versions"}})
+	body, err := t.post(ctx, []map[string]any{{"client": saltClientRunner, "fun": "manage.versions"}})
 	if err != nil {
 		return "", false
 	}
@@ -509,8 +515,6 @@ func unsupportedStartError(kind brine.RequestKind) error {
 	switch kind {
 	case brine.KindRunner:
 		return &brine.UnsupportedError{Capability: brine.CapRunnerStart, Operation: "Start"}
-	case brine.KindWheel:
-		return &brine.UnsupportedError{Capability: brine.CapWheelStart, Operation: "Start"}
 	case brine.KindLowstate:
 		return &brine.UnsupportedError{Capability: brine.CapLowstateStart, Operation: "Start"}
 	case brine.KindLocal:
@@ -526,7 +530,7 @@ func asyncLocalPayload(req brine.Request) ([]map[string]any, error) {
 		return nil, err
 	}
 
-	payload[0]["client"] = "local_async"
+	payload[0]["client"] = saltClientLocalAsync
 
 	return payload, nil
 }
@@ -598,11 +602,9 @@ func lowstateEntries(req brine.Request) ([]map[string]any, error) {
 func clientName(kind brine.RequestKind) string {
 	switch kind {
 	case brine.KindLocal:
-		return "local"
+		return saltClientLocal
 	case brine.KindRunner:
-		return "runner"
-	case brine.KindWheel:
-		return "wheel"
+		return saltClientRunner
 	case brine.KindLowstate:
 		return ""
 	default:

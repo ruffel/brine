@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ruffel/brine"
+	"github.com/ruffel/brine/transportkit"
 )
 
 const (
@@ -298,22 +299,16 @@ func (f saltEventFrame) minionReturn() (brine.MinionResult, bool) {
 		return brine.MinionResult{}, false
 	}
 
-	ret := brine.MinionResult{
-		Minion:  firstNonEmpty(body.ID, body.Minion, minionFromReturnTag(f.tag)),
-		JID:     firstNonEmpty(body.JID, eventJID(f.tag, f.data)),
-		RetCode: body.RetCode,
-		Return:  append([]byte(nil), body.Return...),
-		Raw:     append([]byte(nil), f.data...),
-	}
-
-	switch {
-	case body.Error != "":
-		ret.Failure = &brine.Failure{Kind: brine.FailureMinionException, Message: body.Error, Raw: append([]byte(nil), f.data...)}
-	case body.RetCode != 0:
-		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", body.RetCode), Raw: append([]byte(nil), f.data...)}
-	case body.Success != nil && !*body.Success:
-		ret.Failure = &brine.Failure{Kind: brine.FailureUnknown, Message: "Salt return marked unsuccessful", Raw: append([]byte(nil), f.data...)}
-	}
+	ret := transportkit.NormalizeMinionReturn(transportkit.MinionReturn{
+		Minion:       firstNonEmpty(body.ID, body.Minion, minionFromReturnTag(f.tag)),
+		JID:          firstNonEmpty(body.JID, eventJID(f.tag, f.data)),
+		Return:       append([]byte(nil), body.Return...),
+		Raw:          append([]byte(nil), f.data...),
+		RetCode:      body.RetCode,
+		RetCodeKnown: true,
+		Success:      body.Success,
+		Error:        body.Error,
+	})
 
 	return ret, ret.Minion != "" && ret.JID != ""
 }

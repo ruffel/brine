@@ -12,9 +12,8 @@ Salt topology for the live contract report.
 | Transport info | Supported, including best-effort Salt version detection | Supported, limited to bridge metadata |
 | Local `Run` | Supported; defaults to async-backed collection | Supported through Salt `LocalClient` |
 | Runner `Run` | Supported | Supported through Salt `RunnerClient` |
-| Wheel `Run` | Supported | Unsupported |
 | Raw lowstate `Run` | Supported | Unsupported |
-| Local async `Start` / `Wait` | Supported | Unsupported |
+| Local async `Start` / `Wait` | Supported | Supported through short-lived bridge operations |
 | Job events / global events | Supported through `rest_cherrypy` SSE | Unsupported |
 | Run-scoped progress | Supported | Supported when the bridge emits streaming frames |
 | Batch execution | Supported | Unsupported |
@@ -25,26 +24,30 @@ Salt topology for the live contract report.
 
 The Python bridge is useful when direct REST access is unavailable, but it is
 not feature-equivalent with REST. It starts one helper process per request and
-currently focuses on synchronous local and runner workflows. Contract coverage
-for Python is expected to pass for:
+currently focuses on local and runner workflows. Local async uses one helper
+process to dispatch a jid and another helper process to poll `jobs.lookup_jid`
+and stream minion-return frames. Contract coverage for Python is expected to
+pass for:
 
 - transport info;
 - local `test.ping`, `cmd.run`, and state execution;
 - runner scalar results;
+- local async `Start` / `Wait`;
 - run-scoped progress from streaming local frames;
 - target resolution through responsive minions;
 - explicit unsupported-operation errors for capabilities it does not advertise.
 
-Python intentionally does not advertise wheel, lowstate, async job, batch, or
-global event capabilities. Those contracts should be skipped or should verify
+Python intentionally does not advertise lowstate, batch, or global event
+capabilities. Those contracts should be skipped or should verify
 `brine.ErrUnsupported` behavior rather than pass as supported features.
 
-The largest Python compatibility caveat is missing-minion semantics. The bridge
-uses Salt's `gather_minions` before execution, then runs the command against the
-responsive gathered list. That means it can report which minions it expects from
-that gathered set, but it cannot always prove that an explicit target contained
-offline or nonexistent minions. Use REST for infrastructure workflows where
-missing-minion detection is safety-critical.
+The largest Python compatibility caveat is missing-minion semantics for glob,
+compound, grain, pillar, and nodegroup targets. For explicit list targets, the
+bridge reports the original list as expected so offline or nonexistent entries
+can be marked missing while execution is sent only to responsive gathered
+minions. For dynamic target expressions, the bridge can only report the minions
+Salt's `gather_minions` found before execution. Use REST when missing-minion
+detection for non-list target expressions is safety-critical.
 
 ## Checking compatibility
 

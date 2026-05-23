@@ -58,7 +58,7 @@ func (e *DecodeError) Unwrap() error {
 
 // RunLocal executes a local req and decodes each returned minion body into T.
 //
-// RunLocal rejects runner, wheel, and raw lowstate requests before execution. If
+// RunLocal rejects runner and raw lowstate requests before execution. If
 // Salt execution partially fails, the returned Result contains the available
 // partial data and err preserves Brine's ExecutionError.
 func RunLocal[T any](ctx context.Context, client *brine.Client, req brine.Request) (*Result[T], error) {

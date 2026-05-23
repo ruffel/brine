@@ -66,9 +66,6 @@ func LocalRun(function string) string { return Key(brine.KindLocal, function) }
 // RunnerRun returns the scenario-map key for a runner function.
 func RunnerRun(function string) string { return Key(brine.KindRunner, function) }
 
-// WheelRun returns the scenario-map key for a wheel function.
-func WheelRun(function string) string { return Key(brine.KindWheel, function) }
-
 // JSON marks a raw JSON return body. Invalid JSON is reported when the
 // scenario is executed.
 func JSON(raw string) json.RawMessage { return json.RawMessage(raw) }
@@ -90,11 +87,8 @@ func (t *Transport) Capabilities() brine.Capabilities {
 	defer t.mu.Unlock()
 
 	for key := range t.scenarios {
-		switch {
-		case strings.HasPrefix(key, brine.KindRunner.String()+":"):
+		if strings.HasPrefix(key, brine.KindRunner.String()+":") {
 			caps = append(caps, brine.CapRunnerRun)
-		case strings.HasPrefix(key, brine.KindWheel.String()+":"):
-			caps = append(caps, brine.CapWheelRun)
 		}
 	}
 

@@ -458,7 +458,6 @@ func TestStartRejectsUnsupportedAsyncKinds(t *testing.T) {
 		cap  brine.Capability
 	}{
 		{name: "runner", req: brine.Runner("manage.alived"), cap: brine.CapRunnerStart},
-		{name: "wheel", req: brine.Wheel("key.list_all"), cap: brine.CapWheelStart},
 		{name: "lowstate", req: brine.Lowstate(brine.LowstateEntry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstateStart},
 	}
 

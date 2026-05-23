@@ -33,7 +33,7 @@ func TestCapabilitiesMarshalJSONEmptySet(t *testing.T) {
 func TestCapabilitiesMarshalJSONSortedSet(t *testing.T) {
 	t.Parallel()
 
-	data, err := json.Marshal(NewCapabilities(CapWheelRun, CapLocalRun))
+	data, err := json.Marshal(NewCapabilities(CapRunnerRun, CapLocalRun))
 	require.NoError(t, err)
-	assert.JSONEq(t, `["local.run","wheel.run"]`, string(data))
+	assert.JSONEq(t, `["local.run","runner.run"]`, string(data))
 }

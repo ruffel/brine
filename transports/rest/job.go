@@ -23,11 +23,13 @@ type asyncStartReturn struct {
 }
 
 type localJob struct {
-	transport     *Transport
-	jid           string
-	req           brine.Request
-	expectedKnown bool
-	expected      []string
+	transport       *Transport
+	jid             string
+	req             brine.Request
+	expectedKnown   bool
+	expected        []string
+	collectionKnown bool
+	collection      []string
 
 	mu      sync.Mutex
 	waiting *waitCall
@@ -59,11 +61,19 @@ func newLocalJob(transport *Transport, req brine.Request, body []byte) (*localJo
 		req:       req,
 	}
 	if parsed.Return[0].Minions != nil {
-		job.expectedKnown = true
-		job.expected = append([]string(nil), (*parsed.Return[0].Minions)...)
-	} else if expected, ok := expectedMinionsFromRequest(req); ok {
+		job.collectionKnown = true
+		job.collection = append([]string(nil), (*parsed.Return[0].Minions)...)
+	}
+	if expected, ok := expectedMinionsFromRequest(req); ok {
 		job.expectedKnown = true
 		job.expected = expected
+	} else if parsed.Return[0].Minions != nil {
+		job.expectedKnown = true
+		job.expected = append([]string(nil), (*parsed.Return[0].Minions)...)
+	}
+	if !job.collectionKnown && job.expectedKnown {
+		job.collectionKnown = true
+		job.collection = append([]string(nil), job.expected...)
 	}
 
 	return job, nil
@@ -205,7 +215,7 @@ func (j *localJob) wait(ctx context.Context) waitOutcome {
 
 		accumulator.MergeResult(waitCtx, result)
 		current := accumulator.Result()
-		if jobLookupComplete(current, j.expectedKnown, j.expected) {
+		if j.lookupComplete(current) {
 			res, resErr := resultWithExecutionError(current)
 
 			return waitOutcome{result: res, err: resErr, terminal: true}
@@ -322,7 +332,7 @@ func (t *Transport) lookupLocalJob(
 	expected []string,
 ) (*brine.Result, error) {
 	body, err := t.post(ctx, []map[string]any{{
-		"client": "runner",
+		"client": saltClientRunner,
 		"fun":    "jobs.lookup_jid",
 		"arg":    []any{jid},
 	}})
@@ -400,12 +410,30 @@ func applyJobExpected(result *brine.Result, jid string, expected []string) {
 	}
 }
 
-func jobLookupComplete(result *brine.Result, expectedKnown bool, expected []string) bool {
-	if !expectedKnown {
+func (j *localJob) lookupComplete(result *brine.Result) bool {
+	if result == nil {
+		return false
+	}
+
+	if j.collectionKnown {
+		return allMinionsReturned(result, j.collection)
+	}
+
+	if !j.expectedKnown {
 		return len(result.ByMinion) > 0
 	}
 
-	return len(expected) > 0 && len(result.Missing) == 0
+	return len(j.expected) > 0 && len(result.Missing) == 0
+}
+
+func allMinionsReturned(result *brine.Result, minions []string) bool {
+	for _, minion := range minions {
+		if _, ok := result.ByMinion[minion]; !ok {
+			return false
+		}
+	}
+
+	return true
 }
 
 func resultWithExecutionError(result *brine.Result) (*brine.Result, error) {

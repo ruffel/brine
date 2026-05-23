@@ -114,11 +114,12 @@ func TestCapabilitiesAdvertiseRunScopedLocalReturns(t *testing.T) {
 	caps := transport.Capabilities()
 	assert.True(t, caps.Supports(brine.CapSynchronousRun))
 	assert.True(t, caps.Supports(brine.CapLocalRun))
+	assert.True(t, caps.Supports(brine.CapLocalStart))
 	assert.True(t, caps.Supports(brine.CapRunnerRun))
+	assert.True(t, caps.Supports(brine.CapJobLookup))
 	assert.True(t, caps.Supports(brine.CapTargetResolution))
 	assert.True(t, caps.Supports(brine.CapRunScopedReturns))
 	assert.False(t, caps.Supports(brine.CapEvents))
-	assert.False(t, caps.Supports(brine.CapLocalStart))
 }
 
 func TestRunRunnerScalar(t *testing.T) {
@@ -182,7 +183,6 @@ func TestRunRejectsUnsupportedKinds(t *testing.T) {
 		req  brine.Request
 		cap  brine.Capability
 	}{
-		{name: "wheel", req: brine.Wheel("key.list_all"), cap: brine.CapWheelRun},
 		{name: "lowstate", req: brine.Lowstate(brine.LowstateEntry{Client: "local", Fun: "test.ping", Target: "*"}), cap: brine.CapLowstate},
 	}
 
@@ -235,9 +235,9 @@ func TestBridgeUnsupportedErrorMapping(t *testing.T) {
 		{
 			name:      "explicit capability set",
 			req:       brine.Runner("manage.alived"),
-			response:  `{"error":{"kind":"unsupported","message":"no async","capabilities":["runner.start","wheel.start"]}}`,
+			response:  `{"error":{"kind":"unsupported","message":"no async","capabilities":["runner.start","lowstate.start"]}}`,
 			operation: "Run",
-			caps:      []brine.Capability{brine.CapRunnerStart, brine.CapWheelStart},
+			caps:      []brine.Capability{brine.CapRunnerStart, brine.CapLowstateStart},
 		},
 	}
 
@@ -267,6 +267,107 @@ func TestResolveUsesLocalPing(t *testing.T) {
 	assert.Equal(t, []string{"minion-1", "minion-2"}, minions)
 }
 
+func TestStartLocalAsyncWait(t *testing.T) {
+	t.Parallel()
+
+	transport := newAsyncHelperTransport(t,
+		`{"type":"started","jid":"jid","minions":["minion-1","minion-2"]}`,
+		`{"type":"minions","jid":"jid","minions":["minion-1","minion-2"]}
+{"type":"return","minion":"minion-1","jid":"jid","body":true}
+{"type":"return","minion":"minion-2","jid":"jid","body":true}
+{"type":"done","jid":"jid"}
+`,
+	)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.List("minion-1", "minion-2")))
+	require.NoError(t, err)
+	assert.Equal(t, "jid", job.ID())
+
+	localJob, ok := job.(brine.LocalJob)
+	require.True(t, ok)
+	assert.Equal(t, []string{"minion-1", "minion-2"}, localJob.ExpectedMinions())
+
+	result, err := job.Wait(context.Background())
+	require.NoError(t, err)
+	require.True(t, result.OK())
+	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Returned())
+}
+
+func TestStartLocalAsyncWaitMissingMinion(t *testing.T) {
+	t.Parallel()
+
+	transport := newAsyncHelperTransport(t,
+		`{"type":"started","jid":"jid","minions":["minion-1","minion-2"]}`,
+		`{"type":"minions","jid":"jid","minions":["minion-1","minion-2"]}
+{"type":"return","minion":"minion-1","jid":"jid","body":true}
+{"type":"done","jid":"jid"}
+`,
+	)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.List("minion-1", "minion-2")))
+	require.NoError(t, err)
+
+	result, err := job.Wait(context.Background())
+	require.Error(t, err)
+	var executionError *brine.ExecutionError
+	require.ErrorAs(t, err, &executionError)
+	assert.Equal(t, []string{"minion-2"}, result.Missing)
+}
+
+func TestStartLocalAsyncWaitDoesNotCacheTransientFailures(t *testing.T) {
+	t.Parallel()
+
+	transport := newAsyncHelperTransport(t,
+		`{"type":"started","jid":"jid","minions":["minion-1"]}`,
+		`{"error":{"kind":"exception","message":"lookup down"}}`,
+	)
+
+	job, err := transport.Start(context.Background(), brine.Local("test.ping", brine.List("minion-1")))
+	require.NoError(t, err)
+
+	result, err := job.Wait(context.Background())
+	require.Error(t, err)
+	assert.NotNil(t, result)
+
+	transport.env = []string{
+		"BRINE_PYTHON_HELPER_TEST=1",
+		`BRINE_PYTHON_HELPER_WAIT_RESPONSE={"type":"minions","jid":"jid","minions":["minion-1"]}
+{"type":"return","minion":"minion-1","jid":"jid","body":true}
+{"type":"done","jid":"jid"}
+`,
+	}
+
+	result, err = job.Wait(context.Background())
+	require.NoError(t, err)
+	assert.True(t, result.OK())
+}
+
+func TestRunLocalDomainSuccessFalseIsData(t *testing.T) {
+	t.Parallel()
+
+	ret := normalizeBridgeMinion(brine.Local("test.echo", brine.List("minion-1")), "minion-1", bridgeMinionResult{
+		Return: json.RawMessage(`{"success":false}`),
+	})
+
+	assert.Nil(t, ret.Failure)
+	assert.Zero(t, ret.RetCode)
+	assert.JSONEq(t, `{"success":false}`, string(ret.Return))
+}
+
+func TestRunLocalFullReturnSuccessFalseFails(t *testing.T) {
+	t.Parallel()
+
+	transport := newHelperTransport(t, `{"type":"minions","minions":["minion-1"]}
+{"type":"return","minion":"minion-1","jid":"jid","retcode":0,"success":false,"body":true}
+{"type":"done"}
+`)
+	result, err := transport.Run(context.Background(), brine.Local("test.echo", brine.List("minion-1")))
+	require.NoError(t, err)
+	require.False(t, result.OK())
+	require.NotNil(t, result.ByMinion["minion-1"].Failure)
+	assert.Equal(t, brine.FailureUnknown, result.ByMinion["minion-1"].Failure.Kind)
+}
+
 func TestRunLocalStreamingFrames(t *testing.T) {
 	t.Parallel()
 
@@ -289,7 +390,13 @@ func TestRunLocalStreamingFrames(t *testing.T) {
 	assert.Equal(t, []string{"minion-1", "minion-2"}, result.Expected)
 	assert.Equal(t, []string{"minion-2"}, result.Missing)
 	assert.Equal(t, []string{"minion-1"}, result.Returned())
-	assert.Equal(t, []brine.EventType{brine.EventRequestStarted, brine.EventExpectedMinions, brine.EventMinionReturned, brine.EventRequestFailed}, eventTypes(events))
+	assert.Equal(t, []brine.EventType{
+		brine.EventRequestStarted,
+		brine.EventExpectedMinions,
+		brine.EventExpectedMinions,
+		brine.EventMinionReturned,
+		brine.EventRequestFailed,
+	}, eventTypes(events))
 }
 
 func TestBridgeError(t *testing.T) {
@@ -313,6 +420,7 @@ func TestMakeBridgeRequest(t *testing.T) {
 		brine.Metadata("trace_id", "abc"),
 	))
 	require.NoError(t, err)
+	assert.Equal(t, bridgeProtocolVersion, payload.ProtocolVersion)
 	assert.Equal(t, "local", payload.Kind)
 	assert.Equal(t, brine.TargetCompound, payload.Target.Type)
 	assert.Equal(t, "G@role:web", payload.Target.Expression)
@@ -324,6 +432,7 @@ func TestMakeBridgeRequest(t *testing.T) {
 
 	runner, err := makeBridgeRequest(brine.Runner("manage.alived"))
 	require.NoError(t, err)
+	assert.Equal(t, bridgeProtocolVersion, runner.ProtocolVersion)
 	assert.Equal(t, "runner", runner.Kind)
 	assert.Empty(t, runner.Target.Expression)
 }
@@ -341,6 +450,12 @@ func TestHelperProcess(t *testing.T) {
 	}
 
 	response := os.Getenv("BRINE_PYTHON_HELPER_RESPONSE")
+	if request.Operation == "start" && os.Getenv("BRINE_PYTHON_HELPER_START_RESPONSE") != "" {
+		response = os.Getenv("BRINE_PYTHON_HELPER_START_RESPONSE")
+	}
+	if request.Operation == "wait" && os.Getenv("BRINE_PYTHON_HELPER_WAIT_RESPONSE") != "" {
+		response = os.Getenv("BRINE_PYTHON_HELPER_WAIT_RESPONSE")
+	}
 	if response == "" {
 		response = `{"local":{"by_minion":{}}}`
 	}
@@ -361,13 +476,25 @@ func eventTypes(events []brine.Event) []brine.EventType {
 func newHelperTransport(t *testing.T, response string) *Transport {
 	t.Helper()
 
+	return newHelperTransportWithEnv(t, []string{"BRINE_PYTHON_HELPER_RESPONSE=" + response})
+}
+
+func newAsyncHelperTransport(t *testing.T, startResponse string, waitResponse string) *Transport {
+	t.Helper()
+
+	return newHelperTransportWithEnv(t, []string{
+		"BRINE_PYTHON_HELPER_START_RESPONSE=" + startResponse,
+		"BRINE_PYTHON_HELPER_WAIT_RESPONSE=" + waitResponse,
+	})
+}
+
+func newHelperTransportWithEnv(t *testing.T, env []string) *Transport {
+	t.Helper()
+
 	transport, err := New(Config{
 		Command: os.Args[0],
 		Args:    []string{"-test.run=TestHelperProcess", "--"},
-		Env: []string{
-			"BRINE_PYTHON_HELPER_TEST=1",
-			"BRINE_PYTHON_HELPER_RESPONSE=" + response,
-		},
+		Env:     append([]string{"BRINE_PYTHON_HELPER_TEST=1"}, env...),
 	})
 	require.NoError(t, err)
 

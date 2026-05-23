@@ -14,14 +14,6 @@ type responseEnvelope struct {
 	Return []json.RawMessage `json:"return"`
 }
 
-type fullMinionReturn struct {
-	JID     string          `json:"jid"`
-	Return  json.RawMessage `json:"ret"`
-	RetCode int             `json:"retcode"`
-	Success *bool           `json:"success"`
-	Error   string          `json:"error"`
-}
-
 func normalize(req brine.Request, body []byte) (*brine.Result, error) {
 	envelope := responseEnvelope{}
 	if err := json.Unmarshal(body, &envelope); err != nil {
@@ -42,7 +34,7 @@ func normalize(req brine.Request, body []byte) (*brine.Result, error) {
 		if err := normalizeLocal(result, envelope.Return[0]); err != nil {
 			return nil, err
 		}
-	case brine.KindRunner, brine.KindWheel:
+	case brine.KindRunner:
 		normalizeScalar(result, envelope.Return[0])
 	case brine.KindLowstate:
 		if err := normalizeLowstateScalar(result, envelope.Return); err != nil {
@@ -153,83 +145,50 @@ func missingMinions(expected []string, returned map[string]brine.MinionResult) [
 // heuristics, making full_return the recommended approach for safety-critical
 // modules such as service.status.
 func normalizeMinion(req *brine.Request, minion string, raw json.RawMessage) brine.MinionResult {
-	if full, ok := decodeFullMinionReturn(raw); ok {
-		ret := brine.MinionResult{
-			Minion:  minion,
-			JID:     full.JID,
-			RetCode: full.RetCode,
-			Return:  append([]byte(nil), full.Return...),
-			Raw:     append([]byte(nil), raw...),
-		}
-
-		ret.Failure = fullReturnFailure(full, raw)
-
-		return ret
+	function := ""
+	expectFullReturn := false
+	if req != nil {
+		function = req.Function
+		expectFullReturn = req.Options.FullReturn
 	}
 
-	ret := brine.MinionResult{
-		Minion:  minion,
-		RetCode: 0,
-		Return:  append([]byte(nil), raw...),
+	if full, ok := transportkit.DecodeFullMinionReturn(raw, !expectFullReturn); ok {
+		return transportkit.NormalizeFullMinionReturn(function, minion, full, raw)
+	}
+
+	return transportkit.NormalizeBareMinionReturn(function, minion, raw)
+}
+
+func resultFromRunnerProtocolError(req brine.Request, err error) *brine.Result {
+	if req.Kind != brine.KindRunner {
+		return nil
+	}
+
+	var protocol *brine.ProtocolError
+	if !errors.As(err, &protocol) || protocol.Snippet == "" {
+		return nil
+	}
+
+	var body struct {
+		Return json.RawMessage `json:"return"`
+	}
+	if unmarshalErr := json.Unmarshal([]byte(protocol.Snippet), &body); unmarshalErr != nil || len(body.Return) == 0 {
+		return nil
+	}
+
+	message := "runner returned an error envelope"
+	var text string
+	if unmarshalErr := json.Unmarshal(body.Return, &text); unmarshalErr == nil && text != "" {
+		message = text
+	}
+
+	raw := json.RawMessage(protocol.Snippet)
+	return &brine.Result{
+		Request: &req,
+		Scalar:  append([]byte(nil), body.Return...),
+		Failure: &brine.Failure{Kind: brine.FailureMalformed, Message: message, Raw: append([]byte(nil), raw...)},
 		Raw:     append([]byte(nil), raw...),
 	}
-
-	if failure := bareFalseFailure(req, raw); failure != nil {
-		ret.RetCode = 1
-		ret.Failure = failure
-	} else if failure := stateFailure(req, raw); failure != nil {
-		ret.RetCode = 1
-		ret.Failure = failure
-	}
-
-	return ret
-}
-
-func decodeFullMinionReturn(raw json.RawMessage) (fullMinionReturn, bool) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return fullMinionReturn{}, false
-	}
-
-	if _, ok := fields["ret"]; !ok {
-		return fullMinionReturn{}, false
-	}
-
-	var full fullMinionReturn
-	if err := json.Unmarshal(raw, &full); err != nil {
-		return fullMinionReturn{}, false
-	}
-
-	return full, true
-}
-
-func fullReturnFailure(full fullMinionReturn, raw json.RawMessage) *brine.Failure {
-	switch {
-	case full.Error != "":
-		return &brine.Failure{Kind: brine.FailureMinionException, Message: full.Error, Raw: append([]byte(nil), raw...)}
-	case full.RetCode != 0:
-		return &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", full.RetCode), Raw: append([]byte(nil), raw...)}
-	case full.Success != nil && !*full.Success:
-		return &brine.Failure{Kind: brine.FailureUnknown, Message: "Salt return marked unsuccessful", Raw: append([]byte(nil), raw...)}
-	default:
-		return nil
-	}
-}
-
-func bareFalseFailure(req *brine.Request, raw json.RawMessage) *brine.Failure {
-	if req == nil || req.Kind != brine.KindLocal {
-		return nil
-	}
-
-	return transportkit.BareFalseFailure(req.Function, raw)
-}
-
-func stateFailure(req *brine.Request, raw json.RawMessage) *brine.Failure {
-	if req == nil || req.Kind != brine.KindLocal {
-		return nil
-	}
-
-	return transportkit.StateFailure(req.Function, raw)
 }
 
 func normalizeLowstateScalar(result *brine.Result, returns []json.RawMessage) error {

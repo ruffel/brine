@@ -139,6 +139,28 @@ func IsStateFunction(function string) bool {
 	return strings.HasPrefix(function, "state.")
 }
 
+// StateReturnSucceeded reports whether raw is a recognized state return map
+// whose chunks contain no failed result. It returns false for malformed scalars,
+// empty maps, and arbitrary non-state data.
+func StateReturnSucceeded(function string, raw json.RawMessage) bool {
+	if !IsStateFunction(function) {
+		return false
+	}
+
+	chunks, ok := decodeStateChunks(raw)
+	if !ok {
+		return false
+	}
+
+	for _, chunk := range chunks {
+		if chunk.Result == nil || !*chunk.Result {
+			return false
+		}
+	}
+
+	return true
+}
+
 // IsMalformedState reports whether raw has a known malformed state-return shape.
 func IsMalformedState(raw json.RawMessage) bool {
 	var text string
@@ -154,7 +176,7 @@ func IsMalformedState(raw json.RawMessage) bool {
 	return false
 }
 
-// ScalarFailure classifies Salt runner, wheel, and lowstate scalar failures.
+// ScalarFailure classifies Salt runner and lowstate scalar failures.
 func ScalarFailure(raw json.RawMessage) *brine.Failure {
 	return scalarFailureFromRoot(raw, raw)
 }
@@ -168,11 +190,36 @@ func RetcodeFailure(retcode int, raw json.RawMessage) *brine.Failure {
 	return &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", retcode), Raw: append([]byte(nil), raw...)}
 }
 
-func failedStateChunk(raw json.RawMessage) *brine.Failure {
-	var chunks map[string]struct {
-		Result *bool `json:"result"`
-	}
+type stateChunk struct {
+	ID      string                     `json:"__id__"` //nolint:tagliatelle // Salt state chunk field name.
+	Name    string                     `json:"name"`
+	Result  *bool                      `json:"result"`
+	Changes map[string]json.RawMessage `json:"changes"`
+	Comment string                     `json:"comment"`
+}
+
+func (s stateChunk) recognized() bool {
+	return s.ID != "" || s.Name != "" || s.Result != nil || s.Changes != nil || s.Comment != ""
+}
+
+func decodeStateChunks(raw json.RawMessage) (map[string]stateChunk, bool) {
+	var chunks map[string]stateChunk
 	if err := json.Unmarshal(raw, &chunks); err != nil || len(chunks) == 0 {
+		return nil, false
+	}
+
+	for _, chunk := range chunks {
+		if !chunk.recognized() {
+			return nil, false
+		}
+	}
+
+	return chunks, true
+}
+
+func failedStateChunk(raw json.RawMessage) *brine.Failure {
+	chunks, ok := decodeStateChunks(raw)
+	if !ok {
 		return nil
 	}
 

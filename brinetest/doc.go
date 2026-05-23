@@ -2,7 +2,7 @@
 // transport authors.
 //
 // The suite verifies normalized Brine API semantics instead of raw transport
-// payloads, including transport info, local/runner/wheel calls, state results,
+// payloads, including transport info, local/runner calls, state results,
 // raw lowstate, async wait behavior, event normalization, target resolution,
 // and unsupported operations. Contracts declare required capabilities,
 // capabilities that must be absent, or both, and are skipped when a configured

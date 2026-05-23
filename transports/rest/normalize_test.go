@@ -269,7 +269,7 @@ func TestRunScalarFailureMarksResultNotOK(t *testing.T) {
 			transport, err := New(Config{BaseURL: server.URL, Auth: NoAuth{}})
 			require.NoError(t, err)
 
-			result, err := transport.Run(context.Background(), brine.Wheel("key.list_all"))
+			result, err := transport.Run(context.Background(), brine.Runner("state.orchestrate"))
 			require.NoError(t, err)
 			require.NotNil(t, result.Failure)
 			assert.False(t, result.OK())
@@ -278,7 +278,7 @@ func TestRunScalarFailureMarksResultNotOK(t *testing.T) {
 	}
 }
 
-func TestRunWheelScalarPayload(t *testing.T) {
+func TestRunRunnerScalarPayload(t *testing.T) {
 	t.Parallel()
 
 	var captured []map[string]any
@@ -291,14 +291,14 @@ func TestRunWheelScalarPayload(t *testing.T) {
 	transport, err := New(Config{BaseURL: server.URL, Auth: StaticToken("token")})
 	require.NoError(t, err)
 
-	result, err := transport.Run(context.Background(), brine.Wheel("key.list_all", brine.Kwargs(map[string]any{"match": "minion-*"})))
+	result, err := transport.Run(context.Background(), brine.Runner("manage.alived", brine.Kwargs(map[string]any{"match": "minion-*"})))
 	require.NoError(t, err)
 
 	var keys map[string][]string
 	require.NoError(t, result.DecodeScalar(&keys))
 	assert.Equal(t, []string{"minion-1"}, keys["minions"])
 	require.Len(t, captured, 1)
-	assert.Equal(t, "wheel", captured[0]["client"])
-	assert.Equal(t, "key.list_all", captured[0]["fun"])
+	assert.Equal(t, "runner", captured[0]["client"])
+	assert.Equal(t, "manage.alived", captured[0]["fun"])
 	assert.Equal(t, map[string]any{"match": "minion-*"}, captured[0]["kwarg"])
 }

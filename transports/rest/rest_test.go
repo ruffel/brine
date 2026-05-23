@@ -351,7 +351,7 @@ func TestRunLocalObservedReturnsPartialWhenLookupFailsAfterSSE(t *testing.T) {
 	assert.True(t, recorder.hasMinionReturnRaw("minion-1", `"jid":"jid-1"`))
 }
 
-func TestRejectsBatchForRunnerAndWheelRequests(t *testing.T) {
+func TestRejectsBatchForRunnerRequests(t *testing.T) {
 	t.Parallel()
 
 	transport, err := New(Config{BaseURL: "http://127.0.0.1:8000", Auth: NoAuth{}})
@@ -362,7 +362,6 @@ func TestRejectsBatchForRunnerAndWheelRequests(t *testing.T) {
 		req  brine.Request
 	}{
 		{name: "runner", req: brine.Runner("manage.alived", brine.BatchCount(1))},
-		{name: "wheel", req: brine.Wheel("key.list_all", brine.BatchCount(1))},
 	}
 
 	for _, tt := range tests {

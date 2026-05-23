@@ -3,11 +3,7 @@
     {
       "eauth": "pam",
       "expire": "<redacted>",
-      "perms": [
-        ".*",
-        "@runner",
-        "@wheel"
-      ],
+      "perms": [".*", "@runner"],
       "start": "<redacted>",
       "token": "<redacted>",
       "user": "saltapi"

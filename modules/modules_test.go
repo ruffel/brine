@@ -264,7 +264,6 @@ func TestRunLocalRejectsNonLocalRequests(t *testing.T) {
 		req  brine.Request
 	}{
 		{name: "runner", req: brine.Runner("jobs.active")},
-		{name: "wheel", req: brine.Wheel("key.list_all")},
 		{name: "lowstate", req: brine.Lowstate(brine.LowstateEntry{Client: "runner", Fun: "jobs.active"})},
 	}
 

@@ -108,7 +108,7 @@ func TestMiddlewareExamplesCanBeTestedWithMockTransport(t *testing.T) {
 				assertNestedPillarValue(t, req, "dev")
 
 				return mock.LocalSuccessResult(req, "minion-1", "minion-2"), nil
-			case brine.KindWheel, brine.KindLowstate:
+			case brine.KindLowstate:
 				return nil, fmt.Errorf("unexpected request kind %s", req.Kind)
 			default:
 				return nil, fmt.Errorf("unknown request kind %s", req.Kind)

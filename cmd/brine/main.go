@@ -145,7 +145,6 @@ func newRootCommand(stdout io.Writer, stderr io.Writer) *cobra.Command {
 		newEventsCommand(streams),
 		newLocalCommand(streams),
 		newRunnerCommand(streams),
-		newWheelCommand(streams),
 		newStateCommand(streams),
 		newJobsCommand(streams),
 	)
@@ -254,10 +253,6 @@ func newLocalCommand(streams *ioStreams) *cobra.Command {
 
 func newRunnerCommand(streams *ioStreams) *cobra.Command {
 	return newScalarCommand(streams, "runner", brine.KindRunner)
-}
-
-func newWheelCommand(streams *ioStreams) *cobra.Command {
-	return newScalarCommand(streams, "wheel", brine.KindWheel)
 }
 
 func newScalarCommand(streams *ioStreams, use string, kind brine.RequestKind) *cobra.Command {
@@ -820,12 +815,10 @@ func (o *scalarOptions) run(ctx context.Context, client *brine.Client) error {
 	}
 
 	var req brine.Request
-	//nolint:exhaustive // Scalar CLI commands intentionally support only runner and wheel requests.
+	//nolint:exhaustive // Scalar CLI commands intentionally support only runner requests.
 	switch o.kind {
 	case brine.KindRunner:
 		req = brine.Runner(o.function, opts...)
-	case brine.KindWheel:
-		req = brine.Wheel(o.function, opts...)
 	default:
 		return fmt.Errorf("unknown scalar request kind %s", o.kind)
 	}

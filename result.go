@@ -25,7 +25,7 @@ import (
 // Missing contains expected minion IDs that did not appear in ByMinion. A
 // non-empty Missing slice always produces a non-OK result.
 //
-// Scalar holds the raw return body for runner and wheel requests.
+// Scalar holds the raw return body for runner requests and raw scalar payloads.
 //
 // Failure describes a result-level failure (e.g. the target matched no
 // minions, or a runner returned an error envelope).
@@ -125,11 +125,6 @@ func (r *Result) IsLocal() bool {
 // IsRunner reports whether r is a runner result.
 func (r *Result) IsRunner() bool {
 	return r != nil && r.Request != nil && r.Request.Kind == KindRunner
-}
-
-// IsWheel reports whether r is a wheel result.
-func (r *Result) IsWheel() bool {
-	return r != nil && r.Request != nil && r.Request.Kind == KindWheel
 }
 
 // Returned returns sorted minion IDs that returned data.

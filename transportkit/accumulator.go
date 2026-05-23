@@ -99,11 +99,19 @@ func (a *Accumulator) AddMinion(ctx context.Context, ret brine.MinionResult) {
 		ret.JID = a.jid
 	}
 
+	oldJID := a.jid
 	if ret.JID != "" {
 		a.jids[ret.JID] = struct{}{}
 		if a.jid == "" {
 			a.jid = ret.JID
 		}
+	}
+
+	if a.expectedKnown && oldJID == "" && a.jid != "" {
+		brine.Emit(ctx, brine.NewEvent(brine.EventExpectedMinions, brine.ExpectedMinionsPayload{
+			JID:     a.jid,
+			Minions: append([]string(nil), a.expected...),
+		}))
 	}
 
 	a.byMinion[ret.Minion] = ret

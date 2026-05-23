@@ -10,6 +10,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ruffel/brine"
@@ -18,6 +19,7 @@ import (
 
 const (
 	transportName                 = "python"
+	bridgeProtocolVersion         = 1
 	initialBridgeFrameBufferBytes = 64 * 1024
 	maxBridgeFrameBytes           = 10 * 1024 * 1024
 )
@@ -35,27 +37,40 @@ type Config struct {
 
 	// Env contains additional environment variables for the helper process.
 	Env []string
+
+	// JobPollInterval is sent to async wait helpers as a polling hint.
+	JobPollInterval time.Duration
+
+	// JobWaitTimeout bounds helper-side async wait loops. The caller's context
+	// still cancels the helper process even when this value is zero.
+	JobWaitTimeout time.Duration
 }
 
 // Transport implements a capability-limited Python command bridge.
 type Transport struct {
 	brine.UnsupportedTransport
 
-	command string
-	args    []string
-	dir     string
-	env     []string
-	caps    brine.Capabilities
+	command         string
+	args            []string
+	dir             string
+	env             []string
+	jobPollInterval time.Duration
+	jobWaitTimeout  time.Duration
+	caps            brine.Capabilities
 }
 
 type bridgeRequest struct {
-	Kind     string         `json:"kind"`
-	Function string         `json:"function,omitempty"`
-	Target   bridgeTarget   `json:"target"`
-	Args     []any          `json:"args,omitempty"`
-	Kwargs   map[string]any `json:"kwargs,omitempty"`
-	Options  bridgeOptions  `json:"options"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	ProtocolVersion int            `json:"protocol_version"` //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
+	Kind            string         `json:"kind"`
+	Operation       string         `json:"operation,omitempty"`
+	Function        string         `json:"function,omitempty"`
+	Target          bridgeTarget   `json:"target"`
+	Args            []any          `json:"args,omitempty"`
+	Kwargs          map[string]any `json:"kwargs,omitempty"`
+	Options         bridgeOptions  `json:"options"`
+	Metadata        map[string]any `json:"metadata,omitempty"`
+	JID             string         `json:"jid,omitempty"`
+	Expected        []string       `json:"expected"`
 }
 
 type bridgeTarget struct {
@@ -64,8 +79,10 @@ type bridgeTarget struct {
 }
 
 type bridgeOptions struct {
-	FullReturn     bool `json:"full_return,omitempty"` //nolint:tagliatelle // Bridge protocol mirrors Salt lowstate naming.
-	TimeoutSeconds int  `json:"timeout,omitempty"`
+	FullReturn         bool `json:"full_return,omitempty"` //nolint:tagliatelle // Bridge protocol mirrors Salt lowstate naming.
+	TimeoutSeconds     int  `json:"timeout,omitempty"`
+	PollIntervalMillis int  `json:"poll_interval_ms,omitempty"` //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
+	WaitTimeoutSeconds int  `json:"wait_timeout,omitempty"`     //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
 }
 
 type bridgeResponse struct {
@@ -79,7 +96,8 @@ type bridgeFrame struct {
 	Minions      []string           `json:"minions,omitempty"`
 	Minion       string             `json:"minion,omitempty"`
 	JID          string             `json:"jid,omitempty"`
-	RetCode      int                `json:"retcode,omitempty"`
+	RetCode      *int               `json:"retcode,omitempty"`
+	Success      *bool              `json:"success,omitempty"`
 	Body         json.RawMessage    `json:"body,omitempty"`
 	Return       json.RawMessage    `json:"return,omitempty"`
 	Raw          json.RawMessage    `json:"raw,omitempty"`
@@ -96,7 +114,8 @@ type bridgeLocalResult struct {
 
 type bridgeMinionResult struct {
 	JID     string          `json:"jid,omitempty"`
-	RetCode int             `json:"retcode,omitempty"`
+	RetCode *int            `json:"retcode,omitempty"`
+	Success *bool           `json:"success,omitempty"`
 	Return  json.RawMessage `json:"return"`
 	Error   string          `json:"error,omitempty"`
 	Raw     json.RawMessage `json:"raw,omitempty"`
@@ -118,14 +137,18 @@ func New(config Config) (*Transport, error) {
 	}
 
 	return &Transport{
-		command: config.Command,
-		args:    append([]string(nil), config.Args...),
-		dir:     config.Dir,
-		env:     append([]string(nil), config.Env...),
+		command:         config.Command,
+		args:            append([]string(nil), config.Args...),
+		dir:             config.Dir,
+		env:             append([]string(nil), config.Env...),
+		jobPollInterval: config.JobPollInterval,
+		jobWaitTimeout:  config.JobWaitTimeout,
 		caps: brine.NewCapabilities(
 			brine.CapSynchronousRun,
 			brine.CapLocalRun,
+			brine.CapLocalStart,
 			brine.CapRunnerRun,
+			brine.CapJobLookup,
 			brine.CapTargetResolution,
 			brine.CapRunScopedReturns,
 		),
@@ -161,11 +184,43 @@ func (t *Transport) Run(ctx context.Context, req brine.Request) (*brine.Result, 
 		}
 
 		return t.invokeScalar(ctx, req, payload)
-	case brine.KindWheel, brine.KindLowstate:
+	case brine.KindLowstate:
 		return nil, unsupportedRunError(req.Kind)
 	default:
 		return nil, unsupportedRunError(req.Kind)
 	}
+}
+
+// Start dispatches local async work through the Python bridge. The bridge
+// helper is short-lived: one invocation starts the Salt job and Job.Wait starts
+// another helper process to collect lookup results and stream per-minion frames.
+func (t *Transport) Start(ctx context.Context, req brine.Request) (brine.Job, error) {
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
+	if req.Kind != brine.KindLocal {
+		return nil, unsupportedStartError(req.Kind)
+	}
+
+	payload, err := makeBridgeRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	payload.Operation = "start"
+
+	started, err := t.invokeStart(ctx, req, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return &localJob{
+		transport:     t,
+		req:           req,
+		jid:           started.jid,
+		expectedKnown: started.expectedKnown,
+		expected:      started.expected,
+	}, nil
 }
 
 // Resolve resolves responsive minions by running test.ping through the bridge
@@ -188,6 +243,303 @@ func responsiveMinions(result *brine.Result) []string {
 	}
 
 	return minions
+}
+
+type bridgeStartResult struct {
+	jid           string
+	expected      []string
+	expectedKnown bool
+}
+
+func (t *Transport) invokeStart(ctx context.Context, req brine.Request, payload bridgeRequest) (bridgeStartResult, error) {
+	input, err := json.Marshal(payload)
+	if err != nil {
+		return bridgeStartResult{}, fmt.Errorf("marshal Python bridge start request: %w", err)
+	}
+
+	args := append([]string(nil), t.args...)
+	cmd := exec.CommandContext(ctx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
+	cmd.Dir = t.dir
+	cmd.Env = append(cmd.Environ(), t.env...)
+	cmd.Stdin = bytes.NewReader(input)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return bridgeStartResult{}, brine.NewTransportError("python bridge start", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String())))
+	}
+
+	return parseBridgeStart(req, stdout.Bytes())
+}
+
+func parseBridgeStart(req brine.Request, body []byte) (bridgeStartResult, error) {
+	var started bridgeStartResult
+	seenStarted := false
+
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, initialBridgeFrameBufferBytes), maxBridgeFrameBytes)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+
+		var frame bridgeFrame
+		if err := json.Unmarshal(line, &frame); err != nil {
+			return bridgeStartResult{}, brine.NewProtocolError(snippet(line), err)
+		}
+
+		if frame.Error != nil {
+			return bridgeStartResult{}, bridgeErrorToBrine(req, frame.Error)
+		}
+
+		switch frame.Type {
+		case "minions":
+			started.expectedKnown = true
+			started.expected = append([]string(nil), frame.Minions...)
+			if frame.JID != "" {
+				started.jid = frame.JID
+			}
+		case "started":
+			seenStarted = true
+			started.jid = frame.JID
+			started.expectedKnown = true
+			started.expected = append([]string(nil), frame.Minions...)
+		case "done", "":
+			continue
+		default:
+			return bridgeStartResult{}, brine.NewProtocolError(snippet(line), fmt.Errorf("unexpected Python bridge start frame type %q", frame.Type))
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return bridgeStartResult{}, brine.NewTransportError("python bridge stdout", err)
+	}
+
+	if !seenStarted {
+		return bridgeStartResult{}, brine.NewProtocolError(snippet(body), errors.New("python bridge start response missing started frame"))
+	}
+
+	if started.jid == "" {
+		return bridgeStartResult{}, brine.NewProtocolError(snippet(body), errors.New("python bridge start response missing jid"))
+	}
+
+	return started, nil
+}
+
+type localJob struct {
+	transport     *Transport
+	req           brine.Request
+	jid           string
+	expectedKnown bool
+	expected      []string
+
+	mu      sync.Mutex
+	waiting *waitCall
+	result  *brine.Result
+	err     error
+	done    bool
+}
+
+func (j *localJob) ID() string { return j.jid }
+
+func (j *localJob) Request() *brine.Request {
+	req := j.req
+
+	return &req
+}
+
+func (j *localJob) ExpectedMinions() []string { return append([]string(nil), j.expected...) }
+
+func (j *localJob) Events(context.Context) (brine.EventStream, error) {
+	return nil, &brine.UnsupportedError{Capability: brine.CapEvents, Operation: "Job.Events"}
+}
+
+func (j *localJob) Wait(ctx context.Context) (*brine.Result, error) {
+	j.mu.Lock()
+	if j.done {
+		result, err := j.result, j.err
+		j.mu.Unlock()
+
+		return result, err
+	}
+
+	if j.waiting != nil {
+		call := j.waiting
+		j.mu.Unlock()
+
+		return waitForCall(ctx, call)
+	}
+
+	call := &waitCall{done: make(chan struct{})}
+	j.waiting = call
+	j.mu.Unlock()
+
+	call.result, call.err = j.wait(ctx)
+
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.waiting == call {
+		j.waiting = nil
+	}
+	if !j.done && ctx.Err() == nil && terminalWaitError(call.err) {
+		j.result = call.result
+		j.err = call.err
+		j.done = true
+	}
+	if j.done {
+		call.result = j.result
+		call.err = j.err
+	}
+	close(call.done)
+
+	return call.result, call.err
+}
+
+type waitCall struct {
+	done   chan struct{}
+	result *brine.Result
+	err    error
+}
+
+func waitForCall(ctx context.Context, call *waitCall) (*brine.Result, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-call.done:
+		return call.result, call.err
+	}
+}
+
+func terminalWaitError(err error) bool {
+	if err == nil {
+		return true
+	}
+
+	var execution *brine.ExecutionError
+	return errors.As(err, &execution) && errors.Unwrap(execution) == nil
+}
+
+func (j *localJob) wait(ctx context.Context) (*brine.Result, error) {
+	if j.expectedKnown && len(j.expected) == 0 {
+		return j.noMinionsResult()
+	}
+
+	payload, err := makeBridgeRequest(j.req)
+	if err != nil {
+		return nil, err
+	}
+	payload.Operation = "wait"
+	payload.JID = j.jid
+	payload.Expected = append([]string(nil), j.expected...)
+	payload.Options.PollIntervalMillis = durationMillisCeil(j.transport.jobPollInterval)
+	payload.Options.WaitTimeoutSeconds = durationSecondsCeil(j.transport.jobWaitTimeout)
+
+	return j.transport.invokeWait(ctx, j.req, payload, j.jid, j.expectedKnown, j.expected)
+}
+
+func (j *localJob) noMinionsResult() (*brine.Result, error) {
+	req := j.req
+	result := &brine.Result{
+		JID:      j.jid,
+		Request:  &req,
+		Expected: []string{},
+		ByMinion: map[string]brine.MinionResult{},
+		Failure: &brine.Failure{
+			Kind:    brine.FailureNoReturn,
+			Message: "Salt target matched no minions",
+		},
+	}
+
+	return result, brine.NewExecutionError(result, nil)
+}
+
+func (t *Transport) invokeWait(
+	ctx context.Context,
+	req brine.Request,
+	payload bridgeRequest,
+	jid string,
+	expectedKnown bool,
+	expected []string,
+) (*brine.Result, error) {
+	input, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal Python bridge wait request: %w", err)
+	}
+
+	args := append([]string(nil), t.args...)
+	cmdCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := exec.CommandContext(cmdCtx, t.command, args...) //nolint:gosec // Command and args are explicit transport configuration.
+	cmd.Dir = t.dir
+	cmd.Env = append(cmd.Environ(), t.env...)
+	cmd.Stdin = bytes.NewReader(input)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, brine.NewTransportError("python bridge wait stdout", err)
+	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return nil, brine.NewTransportError("python bridge wait start", err)
+	}
+
+	accumulator := transportkit.NewAccumulator(req)
+	accumulator.SetJID(jid)
+	if expectedKnown {
+		accumulator.SetExpected(ctx, jid, expected)
+	}
+	bridgeAccumulator := &bridgeAccumulator{req: req, acc: accumulator}
+
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, initialBridgeFrameBufferBytes), maxBridgeFrameBytes)
+	for scanner.Scan() {
+		if err := bridgeAccumulator.apply(ctx, scanner.Bytes()); err != nil {
+			cancel()
+			_, _ = io.Copy(io.Discard, stdout)
+			_ = cmd.Wait()
+
+			return waitPartialError(accumulator, err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		cancel()
+		_, _ = io.Copy(io.Discard, stdout)
+		_ = cmd.Wait()
+
+		if ctx.Err() != nil {
+			return waitPartialError(accumulator, ctx.Err())
+		}
+
+		return waitPartialError(accumulator, brine.NewTransportError("python bridge wait stdout", err))
+	}
+
+	if err := cmd.Wait(); err != nil {
+		if ctx.Err() != nil {
+			return waitPartialError(accumulator, ctx.Err())
+		}
+
+		return waitPartialError(accumulator, brine.NewTransportError("python bridge wait", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))))
+	}
+
+	return accumulator.ResultWithExecutionError()
+}
+
+func waitPartialError(accumulator *transportkit.Accumulator, err error) (*brine.Result, error) {
+	result := accumulator.Result()
+	if result != nil && result.IsLocal() && (len(result.ByMinion) > 0 || len(result.Missing) > 0) {
+		return result, brine.NewExecutionError(result, err)
+	}
+
+	return result, err
 }
 
 func (t *Transport) invokeLocal(ctx context.Context, req brine.Request, payload bridgeRequest) (*brine.Result, error) {
@@ -309,10 +661,11 @@ func normalizeBridgeScalar(req brine.Request, body []byte) (*brine.Result, error
 
 func makeBridgeRequest(req brine.Request) (bridgeRequest, error) {
 	payload := bridgeRequest{
-		Kind:     req.Kind.String(),
-		Function: req.Function,
-		Args:     append([]any(nil), req.Args...),
-		Kwargs:   cloneMap(req.Kwargs),
+		ProtocolVersion: bridgeProtocolVersion,
+		Kind:            req.Kind.String(),
+		Function:        req.Function,
+		Args:            append([]any(nil), req.Args...),
+		Kwargs:          cloneMap(req.Kwargs),
 		Options: bridgeOptions{
 			FullReturn:     req.Options.FullReturn,
 			TimeoutSeconds: durationSecondsCeil(req.Options.ModuleTimeout),
@@ -338,6 +691,14 @@ func durationSecondsCeil(duration time.Duration) int {
 	}
 
 	return int((duration + time.Second - 1) / time.Second)
+}
+
+func durationMillisCeil(duration time.Duration) int {
+	if duration <= 0 {
+		return 0
+	}
+
+	return int((duration + time.Millisecond - 1) / time.Millisecond)
 }
 
 func normalizeBridgeLocal(req brine.Request, body []byte) (*brine.Result, error) {
@@ -403,7 +764,7 @@ func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
 
 	switch frame.Type {
 	case "minions":
-		a.setExpected(ctx, frame.Minions)
+		a.setExpected(ctx, frame.JID, frame.Minions)
 	case "return":
 		if frame.Minion == "" {
 			return brine.NewProtocolError(snippet(line), errors.New("python bridge return frame missing minion"))
@@ -412,6 +773,7 @@ func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
 		a.addMinionResult(ctx, frame.Minion, bridgeMinionResult{
 			JID:     frame.JID,
 			RetCode: frame.RetCode,
+			Success: frame.Success,
 			Return:  firstRaw(frame.Body, frame.Return),
 			Error:   frame.ErrorMessage,
 			Raw:     firstRaw(frame.Raw, line),
@@ -425,8 +787,8 @@ func (a *bridgeAccumulator) apply(ctx context.Context, line []byte) error {
 	return nil
 }
 
-func (a *bridgeAccumulator) setExpected(ctx context.Context, minions []string) {
-	a.acc.SetExpected(ctx, "", minions)
+func (a *bridgeAccumulator) setExpected(ctx context.Context, jid string, minions []string) {
+	a.acc.SetExpected(ctx, jid, minions)
 }
 
 func (a *bridgeAccumulator) addMinionResult(ctx context.Context, minion string, item bridgeMinionResult) {
@@ -438,33 +800,25 @@ func (a *bridgeAccumulator) result() *brine.Result {
 }
 
 func normalizeBridgeMinion(req brine.Request, minion string, item bridgeMinionResult) brine.MinionResult {
-	ret := brine.MinionResult{
-		Minion:  minion,
-		JID:     item.JID,
-		RetCode: item.RetCode,
-		Return:  append([]byte(nil), item.Return...),
-		Raw:     firstRaw(item.Raw, item.Return),
-	}
-	falseFailure := transportkit.BareFalseFailure(req.Function, item.Return)
-
-	switch {
-	case item.Error != "":
-		ret.Failure = &brine.Failure{Kind: brine.FailureMinionException, Message: item.Error, Raw: append([]byte(nil), item.Raw...)}
-	case falseFailure != nil:
-		ret.RetCode = 1
-		ret.Failure = falseFailure
-	case transportkit.IsStateFunction(req.Function):
-		ret.Failure = transportkit.StateFailure(req.Function, item.Return)
-		if ret.Failure != nil {
-			ret.RetCode = 1
-		} else {
-			ret.RetCode = 0
-		}
-	case item.RetCode != 0:
-		ret.Failure = &brine.Failure{Kind: brine.FailureRetCode, Message: fmt.Sprintf("retcode %d", item.RetCode), Raw: append([]byte(nil), item.Raw...)}
+	retcode := 0
+	retcodeKnown := false
+	if item.RetCode != nil {
+		retcode = *item.RetCode
+		retcodeKnown = true
 	}
 
-	return ret
+	return transportkit.NormalizeMinionReturn(transportkit.MinionReturn{
+		Minion:            minion,
+		JID:               item.JID,
+		Function:          req.Function,
+		Return:            append([]byte(nil), item.Return...),
+		Raw:               firstRaw(item.Raw, item.Return),
+		RetCode:           retcode,
+		RetCodeKnown:      retcodeKnown,
+		Success:           item.Success,
+		Error:             item.Error,
+		PreferStateReturn: true,
+	})
 }
 
 func ctxWithoutEmitter() context.Context { return context.Background() }
@@ -509,8 +863,6 @@ func runCapabilityForKind(kind brine.RequestKind) brine.Capability {
 		return brine.CapLocalRun
 	case brine.KindRunner:
 		return brine.CapRunnerRun
-	case brine.KindWheel:
-		return brine.CapWheelRun
 	case brine.KindLowstate:
 		return brine.CapLowstate
 	default:
@@ -520,16 +872,25 @@ func runCapabilityForKind(kind brine.RequestKind) brine.Capability {
 
 func unsupportedRunError(kind brine.RequestKind) error {
 	switch kind {
-	case brine.KindRunner:
+	case brine.KindRunner, brine.KindLocal:
 		return nil
-	case brine.KindWheel:
-		return &brine.UnsupportedError{Capability: brine.CapWheelRun, Operation: "Run"}
 	case brine.KindLowstate:
 		return &brine.UnsupportedError{Capability: brine.CapLowstate, Operation: "Run"}
+	default:
+		return &brine.UnsupportedError{Operation: "Run"}
+	}
+}
+
+func unsupportedStartError(kind brine.RequestKind) error {
+	switch kind {
+	case brine.KindRunner:
+		return &brine.UnsupportedError{Capability: brine.CapRunnerStart, Operation: "Start"}
+	case brine.KindLowstate:
+		return &brine.UnsupportedError{Capability: brine.CapLowstateStart, Operation: "Start"}
 	case brine.KindLocal:
 		return nil
 	default:
-		return &brine.UnsupportedError{Operation: "Run"}
+		return &brine.UnsupportedError{Operation: "Start"}
 	}
 }
 
@@ -581,4 +942,7 @@ func snippet(data []byte) string {
 	return string(data)
 }
 
-var _ brine.Transport = (*Transport)(nil)
+var (
+	_ brine.Transport = (*Transport)(nil)
+	_ brine.LocalJob  = (*localJob)(nil)
+)

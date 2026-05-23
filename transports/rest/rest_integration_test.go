@@ -149,17 +149,6 @@ func TestIntegrationRESTSyncWorkflows(t *testing.T) {
 		}
 	})
 
-	t.Run("wheel scalar", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		defer cancel()
-
-		result, err := client.Run(ctx, brine.Wheel("key.list_all"))
-		require.NoError(t, err)
-
-		var keys map[string]any
-		require.NoError(t, result.DecodeScalar(&keys))
-		assert.NotEmpty(t, keys)
-	})
 }
 
 func TestIntegrationRESTRunnerAsyncShape(t *testing.T) {

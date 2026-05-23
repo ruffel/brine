@@ -15,10 +15,12 @@ func TestIntegrationRESTContracts(t *testing.T) {
 	minions := expectedMinionIDs(env.ExpectedMinions)
 
 	brinetest.Verify(t, brinetest.Harness{
-		Name:    "rest",
-		Client:  client,
-		Target:  brine.List(minions...),
-		Minions: minions,
+		Name:           "rest",
+		Client:         client,
+		Target:         brine.List(minions...),
+		Minions:        minions,
+		FakeMinion:     "brine-missing-minion",
+		StoppedService: "cron",
 		States: brinetest.StateNames{
 			Success:        "brine.success",
 			Failure:        "brine.fail",

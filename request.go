@@ -17,9 +17,6 @@ const (
 	// KindRunner executes a Salt runner module on the master.  Runner requests
 	// do not require a Target but must have a non-empty Function.
 	KindRunner
-	// KindWheel executes a Salt wheel module (master-side admin operations).
-	// Wheel requests do not require a Target but must have a non-empty Function.
-	KindWheel
 	// KindLowstate passes raw Salt lowstate entries directly to the transport.
 	// At least one LowstateEntry is required; each entry must carry Client and
 	// Fun, and local/local_async entries must also carry a non-empty Target.
@@ -33,8 +30,6 @@ func (k RequestKind) String() string {
 		return "local"
 	case KindRunner:
 		return "runner"
-	case KindWheel:
-		return "wheel"
 	case KindLowstate:
 		return "lowstate"
 	default:
@@ -92,14 +87,6 @@ func Local(function string, target Target, opts ...RequestOption) Request {
 // Runner builds a runner request.
 func Runner(function string, opts ...RequestOption) Request {
 	req := Request{Kind: KindRunner, Function: function}
-	applyOptions(&req, opts...)
-
-	return req
-}
-
-// Wheel builds a wheel request.
-func Wheel(function string, opts ...RequestOption) Request {
-	req := Request{Kind: KindWheel, Function: function}
 	applyOptions(&req, opts...)
 
 	return req
@@ -236,7 +223,7 @@ func validateRequestKind(r Request) error {
 	switch r.Kind {
 	case KindLocal:
 		return errors.Join(validateLocalRequest(r), validateLocalFunction(r.Function))
-	case KindRunner, KindWheel:
+	case KindRunner:
 		return validateNamedRequestKind(r.Kind, r.Function)
 	case KindLowstate:
 		return errors.Join(validateLowstateRequest(r.Lowstate), validateLowstateEntries(r.Lowstate))

@@ -30,14 +30,6 @@ const (
 	// asynchronously via Start.
 	CapRunnerStart Capability = "runner.start"
 
-	// CapWheelRun indicates the transport can execute Salt wheel modules
-	// (master-side admin operations) synchronously via Run.
-	CapWheelRun Capability = "wheel.run"
-
-	// CapWheelStart indicates the transport can fire Salt wheel modules
-	// asynchronously via Start.
-	CapWheelStart Capability = "wheel.start"
-
 	// CapLowstate indicates the transport accepts raw lowstate payloads for Run,
 	// bypassing brine's typed request builders.
 	CapLowstate Capability = "lowstate"

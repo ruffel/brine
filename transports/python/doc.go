@@ -2,14 +2,16 @@
 //
 // The transport starts a helper process per request and exchanges JSON over
 // stdin and stdout. It intentionally advertises a narrow capability set:
-// synchronous local execution, synchronous runner execution, responsive target
-// resolution through test.ping, and run-scoped return events for local Run calls
-// that emit streaming frames. Async jobs, global events, wheel calls, and raw
-// lowstate requests return Brine's normal UnsupportedError through the embedded
+// synchronous and asynchronous local execution, synchronous runner execution,
+// responsive target resolution through test.ping, and run-scoped return events
+// for local Run calls that emit streaming frames. Global events and raw lowstate
+// requests return Brine's normal UnsupportedError through the embedded
 // UnsupportedTransport.
 //
-// The helper receives one JSON object on stdin. Local requests include kind,
-// function, target, args, kwargs, options, and metadata fields. Runner requests
+// The helper receives one JSON object on stdin. Requests include
+// protocol_version=1 so helpers and Go callers fail explicitly on incompatible
+// protocol changes. Local requests include kind, function, target, args, kwargs,
+// options, and metadata fields. Runner requests
 // omit target data and use the same function, args, kwargs, options, and
 // metadata fields. Options currently include full_return and timeout seconds.
 // Metadata is caller-owned Brine metadata and should not be sent to Salt unless
@@ -19,9 +21,14 @@
 // delimited streaming frames. A local response uses local.by_minion, keyed by
 // minion ID, with jid, retcode, return, error, and raw fields per minion.
 // Streaming frames use type "minions" to declare the expected minion set, type
-// "return" for one minion return, and type "done" to end the stream. Streaming
-// return frames are the only Python bridge path that produces run-scoped
-// progress events.
+// "return" for one minion return, and type "done" to end the stream. For
+// explicit list targets, the expected minion set is the original list target so
+// missing list entries can be reported. Local async Start uses operation
+// "start" and expects a type "started" frame with a jid and minions. Job.Wait
+// uses operation "wait" with the jid and expected
+// minions, then consumes the same minions/return/done frame stream. Streaming
+// return frames are the Python bridge path that produces run-scoped progress
+// events.
 //
 // Runner helpers write newline-delimited frames whose last non-empty frame must
 // contain a scalar field. The scalar value is preserved as Result.Scalar and is

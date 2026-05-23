@@ -1,16 +1,16 @@
 // Package rest implements Brine's Salt rest_cherrypy transport.
 //
-// The transport currently supports local, runner, wheel, and raw lowstate Run
+// The transport currently supports local, runner, and raw lowstate Run
 // requests, plus target resolution through Salt's test.ping. Raw lowstate
-// entries pass through Salt's client field, such as local, runner, or wheel, and
+// entries pass through Salt's client field, such as local or runner, and
 // preserve flexible tgt values including list targets. Local Run requests use
 // local_async plus runner.jobs.lookup_jid by default; Config.LocalRunMode can
 // select direct synchronous local execution or auto mode for compatibility and
-// performance tuning. Runner, wheel, and lowstate Run requests still use direct
+// performance tuning. Runner and lowstate Run requests still use direct
 // request/response calls. Local asynchronous requests are dispatched through
-// Salt's local_async client and return a brine.LocalJob. Runner, wheel, and
-// lowstate asynchronous dispatch are intentionally unsupported until their Salt
-// response and lookup semantics are covered by fixtures.
+// Salt's local_async client and return a brine.LocalJob. Runner and lowstate
+// asynchronous dispatch are intentionally unsupported until their Salt response
+// and lookup semantics are covered by fixtures.
 //
 // Job.Wait collects final local async results with runner.jobs.lookup_jid. If
 // Salt omits the async start minion list for an explicit list target, Brine uses
