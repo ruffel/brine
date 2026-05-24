@@ -39,6 +39,9 @@ jobs:
       - name: Compile Python bridge
         run: python -m py_compile transports/python/brine_salt_bridge.py
 
+      - name: Check coverage output is untracked
+        run: test -z "$(git ls-files coverage.out)"
+
       - name: Run race tests
         run: go test -race ./...
 

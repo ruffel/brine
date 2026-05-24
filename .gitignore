@@ -5,6 +5,7 @@
 *.dylib
 
 # Test coverage
+coverage.out
 *.out
 
 # IDE
