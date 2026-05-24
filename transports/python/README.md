@@ -37,6 +37,9 @@ and expected minions, then consumes the same minion/return/done frame stream
 while the helper polls `jobs.lookup_jid`. The Go transport accumulates those
 frames into the final `Result` and emits Brine observer events for expected
 minions and per-minion returns while `Client.Run` or `Job.Wait` is collecting.
+`Transport.Info` sends kind `info` and treats Salt version metadata as
+best-effort; if the helper cannot import Salt or report a version, Brine returns
+base transport metadata and tries the version probe again on a later call.
 
 The bundled helper script, `brine_salt_bridge.py`, imports
 `salt.client.LocalClient`, so it must run in an environment where Salt's Python

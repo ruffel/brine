@@ -38,6 +38,7 @@ type Harness struct {
 	Minions              []string
 	States               StateNames
 	PartialFailedMinions []string
+	ExpectedSaltVersion  string
 
 	// FakeMinion is a minion ID that does not exist in the Salt environment.
 	// When set, contracts that exercise missing-minion semantics are enabled.

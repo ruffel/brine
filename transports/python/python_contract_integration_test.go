@@ -19,12 +19,13 @@ func TestIntegrationPythonContracts(t *testing.T) {
 	minions := expectedMinionIDs(env.ExpectedMinions)
 
 	brinetest.Verify(t, brinetest.Harness{
-		Name:           "python",
-		Client:         client,
-		Target:         brine.List(minions...),
-		Minions:        minions,
-		FakeMinion:     "brine-missing-minion",
-		StoppedService: "cron",
+		Name:                "python",
+		Client:              client,
+		Target:              brine.List(minions...),
+		Minions:             minions,
+		ExpectedSaltVersion: env.Version,
+		FakeMinion:          "brine-missing-minion",
+		StoppedService:      "cron",
 		States: brinetest.StateNames{
 			Success:        "brine.success",
 			Failure:        "brine.fail",

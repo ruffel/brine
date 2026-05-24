@@ -19,6 +19,7 @@ Supported operations:
   returns until all expected minions have returned or the optional wait timeout
   expires.
 * runner/run: execute a runner function and return a scalar frame.
+* info/run: report bridge and Salt runtime metadata.
 """
 
 from __future__ import annotations
@@ -82,6 +83,9 @@ def handle(request: dict[str, Any]) -> Any:
 
     if kind == "runner" and operation == "run":
         return run_runner(request)
+
+    if kind == "info" and operation == "run":
+        return run_info()
 
     return unsupported(f"unsupported request kind {kind!r}")
 
@@ -340,6 +344,19 @@ def run_runner(request: dict[str, Any]) -> dict[str, Any]:
         return {"type": "scalar", "scalar": {"error": str(exc)}}
 
     return {"type": "scalar", "scalar": value}
+
+
+def run_info() -> dict[str, Any]:
+    import salt.version  # Imported lazily so protocol tests do not need Salt installed.
+
+    version = str(getattr(salt.version, "__version__", "") or "")
+    if not version:
+        try:
+            version = str(salt.version.SaltStackVersion.current())
+        except Exception:
+            version = ""
+
+    return {"type": "scalar", "scalar": {"salt_version": version}}
 
 
 def master_config_path() -> str:

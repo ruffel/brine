@@ -28,4 +28,7 @@ func verifyTransportInfo(t *testing.T, h Harness) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, info.Name)
 	assert.ElementsMatch(t, h.Client.Capabilities().List(), info.Capabilities.List())
+	if h.ExpectedSaltVersion != "" {
+		assert.Equal(t, h.ExpectedSaltVersion, info.SaltVersion)
+	}
 }

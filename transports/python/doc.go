@@ -34,6 +34,9 @@
 // Runner helpers write newline-delimited frames whose last non-empty frame must
 // contain a scalar field. The scalar value is preserved as Result.Scalar and is
 // classified for common Salt error shapes.
+// Info helpers write a scalar field with best-effort Salt version metadata.
+// Version probe failures do not make Transport.Info fail; they leave version
+// fields empty so later calls can retry.
 //
 // Any frame or response may contain error. Error kind "unsupported" maps to
 // UnsupportedError. Helpers can include operation, capability, or capabilities

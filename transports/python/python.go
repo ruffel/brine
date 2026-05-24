@@ -65,6 +65,8 @@ type Transport struct {
 	jobPollInterval  time.Duration
 	jobWaitTimeout   time.Duration
 	caps             brine.Capabilities
+	infoMu           sync.Mutex
+	cachedInfo       *brine.TransportInfo
 }
 
 type bridgeRequest struct {
@@ -139,6 +141,10 @@ type bridgeError struct {
 	Capabilities []brine.Capability `json:"capabilities,omitempty"`
 }
 
+type bridgeInfo struct {
+	SaltVersion string `json:"salt_version"` //nolint:tagliatelle // Bridge protocol uses snake_case for readability.
+}
+
 // New constructs a Python command bridge transport.
 func New(config Config) (*Transport, error) {
 	if strings.TrimSpace(config.Command) == "" {
@@ -170,8 +176,21 @@ func New(config Config) (*Transport, error) {
 func (t *Transport) Capabilities() brine.Capabilities { return t.caps }
 
 // Info implements brine.Transport.
-func (t *Transport) Info(context.Context) (brine.TransportInfo, error) {
-	return brine.TransportInfo{Name: transportName, Capabilities: t.caps}, nil
+func (t *Transport) Info(ctx context.Context) (brine.TransportInfo, error) {
+	if info, ok := t.cachedTransportInfo(); ok {
+		return info, nil
+	}
+
+	info := brine.TransportInfo{Name: transportName, Capabilities: t.caps}
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	if saltVersion, ok := t.detectSaltVersion(probeCtx); ok {
+		info.SaltVersion = saltVersion
+		t.storeTransportInfo(info)
+	}
+
+	return info, nil
 }
 
 // Run implements brine.Handler for local and runner requests.
@@ -280,6 +299,24 @@ func (t *Transport) requireSupportedOptions(req brine.Request, operation string)
 
 func requestUsesBatch(req brine.Request) bool {
 	return req.Options.Batch.Count > 0 || req.Options.Batch.Percent > 0
+}
+
+func (t *Transport) cachedTransportInfo() (brine.TransportInfo, bool) {
+	t.infoMu.Lock()
+	defer t.infoMu.Unlock()
+
+	if t.cachedInfo == nil {
+		return brine.TransportInfo{}, false
+	}
+
+	return *t.cachedInfo, true
+}
+
+func (t *Transport) storeTransportInfo(info brine.TransportInfo) {
+	t.infoMu.Lock()
+	defer t.infoMu.Unlock()
+
+	t.cachedInfo = &info
 }
 
 func (t *Transport) commandEnv(base []string) []string {
@@ -667,6 +704,70 @@ func (t *Transport) invokeScalar(ctx context.Context, req brine.Request, payload
 	}
 
 	return normalizeBridgeScalar(req, stdout.Bytes())
+}
+
+func (t *Transport) detectSaltVersion(ctx context.Context) (string, bool) {
+	payload := bridgeRequest{
+		ProtocolVersion: bridgeProtocolVersion,
+		Kind:            "info",
+	}
+
+	input, err := json.Marshal(payload)
+	if err != nil {
+		return "", false
+	}
+
+	cmd := t.bridgeCommand(ctx, input)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", false
+	}
+
+	version, err := saltVersionFromInfo(stdout.Bytes())
+	if err != nil {
+		return "", false
+	}
+
+	return version, version != ""
+}
+
+func saltVersionFromInfo(body []byte) (string, error) {
+	var last bridgeFrame
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, initialBridgeFrameBufferBytes), maxBridgeFrameBytes)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+
+		if err := json.Unmarshal(line, &last); err != nil {
+			return "", err
+		}
+
+		if last.Error != nil {
+			return "", errors.New(last.Error.Message)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+
+	if len(last.Scalar) == 0 {
+		return "", nil
+	}
+
+	info := bridgeInfo{}
+	if err := json.Unmarshal(last.Scalar, &info); err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(info.SaltVersion), nil
 }
 
 func normalizeBridgeScalar(req brine.Request, body []byte) (*brine.Result, error) {

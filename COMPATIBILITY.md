@@ -9,7 +9,7 @@ Salt topology for the live contract report.
 
 | Capability area | REST transport | Python bridge transport |
 | --- | --- | --- |
-| Transport info | Supported, including best-effort Salt version detection | Supported, limited to bridge metadata |
+| Transport info | Supported, including best-effort Salt version detection | Supported, including best-effort Salt version detection |
 | Local `Run` | Supported; defaults to async-backed collection | Supported through Salt `LocalClient` |
 | Runner `Run` | Supported | Supported through Salt `RunnerClient` |
 | Raw lowstate `Run` | Supported | Unsupported |

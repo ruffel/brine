@@ -136,6 +136,41 @@ func TestRunRunnerScalar(t *testing.T) {
 	assert.Equal(t, []string{"minion-1", "minion-2"}, alive)
 }
 
+func TestInfoReportsSaltVersion(t *testing.T) {
+	t.Parallel()
+
+	transport := newHelperTransportWithEnv(t, []string{
+		`BRINE_PYTHON_HELPER_INFO_RESPONSE={"type":"scalar","scalar":{"salt_version":"3006.9"}}`,
+	})
+
+	info, err := transport.Info(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "python", info.Name)
+	assert.Equal(t, "3006.9", info.SaltVersion)
+	assert.ElementsMatch(t, transport.Capabilities().List(), info.Capabilities.List())
+}
+
+func TestInfoDoesNotCacheProbeFailures(t *testing.T) {
+	t.Parallel()
+
+	transport := newHelperTransportWithEnv(t, []string{
+		`BRINE_PYTHON_HELPER_INFO_RESPONSE={"error":{"kind":"exception","message":"salt unavailable"}}`,
+	})
+
+	info, err := transport.Info(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, info.SaltVersion)
+
+	transport.env = []string{
+		"BRINE_PYTHON_HELPER_TEST=1",
+		`BRINE_PYTHON_HELPER_INFO_RESPONSE={"type":"scalar","scalar":{"salt_version":"3006.9"}}`,
+	}
+
+	info, err = transport.Info(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "3006.9", info.SaltVersion)
+}
+
 func TestRunRunnerScalarFailures(t *testing.T) {
 	t.Parallel()
 
@@ -497,6 +532,9 @@ func TestHelperProcess(t *testing.T) {
 	}
 	if request.Operation == "wait" && os.Getenv("BRINE_PYTHON_HELPER_WAIT_RESPONSE") != "" {
 		response = os.Getenv("BRINE_PYTHON_HELPER_WAIT_RESPONSE")
+	}
+	if request.Kind == "info" && os.Getenv("BRINE_PYTHON_HELPER_INFO_RESPONSE") != "" {
+		response = os.Getenv("BRINE_PYTHON_HELPER_INFO_RESPONSE")
 	}
 	if response == "" {
 		response = `{"local":{"by_minion":{}}}`
