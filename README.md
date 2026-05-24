@@ -65,6 +65,7 @@ helper process per operation, so REST is still the better fit for
 high-concurrency services.
 
 See `COMPATIBILITY.md` for the live-tested matrix and Python-specific caveats.
+For a short hands-on path through the API, read `doc/TUTORIAL.md`.
 
 ## REST setup checklist
 
@@ -157,9 +158,11 @@ Justfile recipes.
 
 Transport authors can use `transportkit` to build normalized results and
 classify common Salt failure shapes consistently with Brine's built-in
-transports. See `COMPATIBILITY.md`, `TESTING.md`, `RELEASE.md`, and
-`test/integration/README.md` for the REST/Python capability matrix, contract
-coverage, and release-readiness workflow.
+transports. See `doc/TUTORIAL.md`, `COMPATIBILITY.md`, `TESTING.md`,
+`RELEASE.md`, and `test/integration/README.md` for the quick-start path,
+REST/Python capability matrix, contract coverage, and release-readiness
+workflow. `DESIGN.md` is an archived design snapshot; newer design decisions
+live in `doc/adr/`.
 
 ## Repository tools
 
@@ -171,7 +174,8 @@ coverage, and release-readiness workflow.
   and printing normalized JSON or a generic summary for manual debugging. It
   uses Cobra for command structure and Koanf for flag/env configuration merging.
 - `examples/...` contains deterministic API examples for custom typed wrappers,
-  partial failures, progress observers, and app-owned formatting.
+  partial failures, progress observers, app-owned formatting, and a runnable
+  scripted demo.
 - `tools/...` is a separate module for optional demos and richer tooling. Root
   commands can use focused CLI dependencies when useful; richer experiments and
   TUI-style tools belong under `tools`, not in root examples or commands.
